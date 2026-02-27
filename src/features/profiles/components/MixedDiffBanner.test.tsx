@@ -29,11 +29,14 @@ import type { ClaudeConfig, Profile } from "@/types";
 const makeProfile = (
   id: string,
   name: string,
-  activeMcps: string[] = []
+  codeMcps: string[] = []
 ): Profile => ({
   id,
   name,
-  activeMcps,
+  mcpServers: {
+    code: Object.fromEntries(codeMcps.map((n) => [n, { command: "node", args: [] }])),
+    desktop: {},
+  },
   createdAt: "2026-01-01T00:00:00Z",
 });
 

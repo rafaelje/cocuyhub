@@ -19,7 +19,7 @@ export function ProfileCard({ profile, isActive, onSwitch, onEdit, onDelete }: P
         )}
         <span className="text-sm text-zinc-200 truncate">{profile.name}</span>
         <span className="text-xs text-zinc-500 shrink-0">
-          {profile.activeMcps.length} MCPs
+          {Object.keys(profile.mcpServers.code).length} MCPs
         </span>
       </div>
       <div className="flex items-center gap-1 shrink-0">

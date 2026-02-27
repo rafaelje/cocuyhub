@@ -7,20 +7,9 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
 }));
-vi.mock("@/stores/useConfigStore", () => ({ useConfigStore: vi.fn() }));
 vi.mock("@/stores/useProfileStore", () => ({ useProfileStore: vi.fn() }));
 
-import { useConfigStore } from "@/stores/useConfigStore";
 import { useProfileStore } from "@/stores/useProfileStore";
-import type { ClaudeConfig } from "@/types";
-
-const mockConfig: ClaudeConfig = {
-  mcpServers: {
-    "mcp-github": { command: "node", args: [] },
-    "mcp-disabled": { command: "node", args: [], disabled: true },
-    "mcp-active": { command: "node", args: [] },
-  },
-};
 
 describe("ProfileCreateForm", () => {
   const mockOnOpenChange = vi.fn();
@@ -29,9 +18,6 @@ describe("ProfileCreateForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockOnSubmit.mockResolvedValue(undefined);
-    vi.mocked(useConfigStore).mockImplementation((selector) =>
-      selector({ codeConfig: mockConfig, desktopConfig: mockConfig } as never)
-    );
     vi.mocked(useProfileStore).mockImplementation((selector) =>
       selector({ profiles: [] } as never)
     );
@@ -41,7 +27,7 @@ describe("ProfileCreateForm", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders name input and MCP checkbox list when open", () => {
+  it("renders name input without MCP checkboxes when open", () => {
     render(
       <ProfileCreateForm
         open={true}
@@ -50,32 +36,7 @@ describe("ProfileCreateForm", () => {
       />
     );
     expect(screen.getByLabelText(/Name/)).not.toBeNull();
-    expect(screen.getByText("mcp-github")).not.toBeNull();
-    expect(screen.getByText("mcp-disabled")).not.toBeNull();
-    expect(screen.getByText("mcp-active")).not.toBeNull();
-  });
-
-  it("pre-selects currently enabled MCPs from codeConfig", () => {
-    render(
-      <ProfileCreateForm
-        open={true}
-        onOpenChange={mockOnOpenChange}
-        onSubmit={mockOnSubmit}
-      />
-    );
-    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    // mcp-github: enabled → checked
-    const githubBox = checkboxes.find((cb) => {
-      const label = cb.closest("label");
-      return label?.textContent?.includes("mcp-github");
-    });
-    expect(githubBox?.checked).toBe(true);
-    // mcp-disabled: disabled → unchecked
-    const disabledBox = checkboxes.find((cb) => {
-      const label = cb.closest("label");
-      return label?.textContent?.includes("mcp-disabled");
-    });
-    expect(disabledBox?.checked).toBe(false);
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
   });
 
   it("shows char counter when name length is 20 or more", async () => {
@@ -98,7 +59,7 @@ describe("ProfileCreateForm", () => {
           {
             id: "p1",
             name: "Work",
-            activeMcps: [],
+            mcpServers: { code: {}, desktop: {} },
             createdAt: "2026-01-01T00:00:00Z",
           },
         ],
@@ -135,7 +96,7 @@ describe("ProfileCreateForm", () => {
           {
             id: "p1",
             name: "Duplicate",
-            activeMcps: [],
+            mcpServers: { code: {}, desktop: {} },
             createdAt: "2026-01-01T00:00:00Z",
           },
         ],
@@ -167,7 +128,7 @@ describe("ProfileCreateForm", () => {
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
-  it("Save calls onSubmit with trimmed name and selected MCPs", async () => {
+  it("Save calls onSubmit with trimmed name only", async () => {
     render(
       <ProfileCreateForm
         open={true}
@@ -177,13 +138,8 @@ describe("ProfileCreateForm", () => {
     );
     await userEvent.type(screen.getByLabelText(/Name/), "My Profile");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(mockOnSubmit).toHaveBeenCalledWith(
-      "My Profile",
-      expect.arrayContaining(["mcp-github", "mcp-active"])
-    );
-    // mcp-disabled should NOT be in the activeMcps
-    const [, activeMcps] = mockOnSubmit.mock.calls[0] as [string, string[]];
-    expect(activeMcps).not.toContain("mcp-disabled");
+    expect(mockOnSubmit).toHaveBeenCalledWith("My Profile");
+    expect(mockOnSubmit.mock.calls[0]).toHaveLength(1);
   });
 
   it("form resets on close", async () => {

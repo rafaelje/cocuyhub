@@ -351,6 +351,38 @@ describe("McpList", () => {
     expect(screen.getByRole("textbox")).not.toBeNull();
   });
 
+  // Description tests
+  it("calls mcp_set_description and reloads config on description change", async () => {
+    mockInvokeCommand.mockResolvedValue(undefined);
+    render(<McpList config={twoMcps} tool="code" />);
+    const articles = screen.getAllByRole("article");
+    await userEvent.click(within(articles[0]).getByText("Add description…"));
+    const input = screen.getByRole("textbox", { name: "Description for server-a" });
+    await userEvent.type(input, "My description");
+    await userEvent.keyboard("{Enter}");
+    expect(mockInvokeCommand).toHaveBeenCalledWith("mcp_set_description", {
+      name: "server-a",
+      description: "My description",
+      tool: "code",
+    });
+    expect(mockReloadConfig).toHaveBeenCalledWith("code");
+  });
+
+  it("shows error toast and rethrows when mcp_set_description fails", async () => {
+    mockInvokeCommand.mockRejectedValue({ message: "write failed" });
+    render(<McpList config={twoMcps} tool="code" />);
+    const articles = screen.getAllByRole("article");
+    await userEvent.click(within(articles[0]).getByText("Add description…"));
+    const input = screen.getByRole("textbox", { name: "Description for server-a" });
+    await userEvent.type(input, "My description");
+    await userEvent.keyboard("{Enter}");
+    expect(mockToastError).toHaveBeenCalledWith(
+      "Failed to update description: write failed",
+      { duration: Infinity }
+    );
+    expect(screen.getByRole("textbox", { name: "Description for server-a" })).not.toBeNull();
+  });
+
   // copy-to-other tests
   it("passes onCopyToOther to MCPRow when otherConfig is provided", () => {
     render(<McpList config={twoMcps} tool="code" otherConfig={desktopConfigFixture} />);

@@ -23,7 +23,12 @@ import type { Profile } from "@/types";
 const makeProfile = (id: string, name: string, mcpCount = 2): Profile => ({
   id,
   name,
-  activeMcps: Array.from({ length: mcpCount }, (_, i) => `mcp-${i}`),
+  mcpServers: {
+    code: Object.fromEntries(
+      Array.from({ length: mcpCount }, (_, i) => [`mcp-${i}`, { command: "node", args: [] }])
+    ),
+    desktop: {},
+  },
   createdAt: "2026-01-01T00:00:00Z",
 });
 

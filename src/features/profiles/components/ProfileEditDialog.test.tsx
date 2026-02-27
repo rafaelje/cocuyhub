@@ -24,10 +24,10 @@ const mockToastError = vi.mocked(toast.error);
 const mockUpdateProfile = vi.fn();
 const mockOnOpenChange = vi.fn();
 
-const makeProfile = (id: string, name: string, activeMcps: string[] = []): Profile => ({
+const makeProfile = (id: string, name: string): Profile => ({
   id,
   name,
-  activeMcps,
+  mcpServers: { code: {}, desktop: {} },
   createdAt: "2026-01-01T00:00:00Z",
 });
 
@@ -69,7 +69,7 @@ describe("ProfileEditDialog", () => {
   });
 
   it("pre-populates name input with profile.name on open", () => {
-    const profile = makeProfile("p1", "Work", []);
+    const profile = makeProfile("p1", "Work");
     setupStores([profile]);
     render(
       <ProfileEditDialog open={true} onOpenChange={mockOnOpenChange} profile={profile} />
@@ -78,22 +78,9 @@ describe("ProfileEditDialog", () => {
     expect(input.value).toBe("Work");
   });
 
-  it("pre-populates MCP checkboxes from profile.activeMcps", () => {
-    const profile = makeProfile("p1", "Work", ["mcp-a"]);
-    setupStores([profile], makeConfig(["mcp-a", "mcp-b"]));
-    render(
-      <ProfileEditDialog open={true} onOpenChange={mockOnOpenChange} profile={profile} />
-    );
-    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    const aBox = checkboxes.find((cb) => cb.closest("label")?.textContent?.includes("mcp-a"));
-    const bBox = checkboxes.find((cb) => cb.closest("label")?.textContent?.includes("mcp-b"));
-    expect(aBox?.checked).toBe(true);
-    expect(bBox?.checked).toBe(false);
-  });
-
   it("shows name error when name matches another profile", async () => {
-    const profile = makeProfile("p1", "Work", []);
-    const other = makeProfile("p2", "Research", []);
+    const profile = makeProfile("p1", "Work");
+    const other = makeProfile("p2", "Research");
     setupStores([profile, other]);
     render(
       <ProfileEditDialog open={true} onOpenChange={mockOnOpenChange} profile={profile} />
@@ -105,7 +92,7 @@ describe("ProfileEditDialog", () => {
   });
 
   it("does NOT show name error for the current profile own name", async () => {
-    const profile = makeProfile("p1", "Work", []);
+    const profile = makeProfile("p1", "Work");
     setupStores([profile]);
     render(
       <ProfileEditDialog open={true} onOpenChange={mockOnOpenChange} profile={profile} />
@@ -117,9 +104,9 @@ describe("ProfileEditDialog", () => {
   });
 
   it("clicking Save changes calls invokeCommand with profile_update", async () => {
-    const profile = makeProfile("p1", "Work", []);
+    const profile = makeProfile("p1", "Work");
     setupStores([profile]);
-    const updatedProfile = makeProfile("p1", "Work Updated", []);
+    const updatedProfile = makeProfile("p1", "Work Updated");
     mockInvokeCommand.mockResolvedValue(updatedProfile);
     render(
       <ProfileEditDialog open={true} onOpenChange={mockOnOpenChange} profile={profile} />
@@ -131,13 +118,12 @@ describe("ProfileEditDialog", () => {
     expect(mockInvokeCommand).toHaveBeenCalledWith("profile_update", {
       id: "p1",
       name: "Work Updated",
-      activeMcps: [],
     });
   });
 
   it("on success: calls updateProfile, toast.success, onOpenChange(false)", async () => {
-    const profile = makeProfile("p1", "Work", []);
-    const updatedProfile = makeProfile("p1", "Work Updated", []);
+    const profile = makeProfile("p1", "Work");
+    const updatedProfile = makeProfile("p1", "Work Updated");
     setupStores([profile]);
     mockInvokeCommand.mockResolvedValue(updatedProfile);
     render(
@@ -153,7 +139,7 @@ describe("ProfileEditDialog", () => {
   });
 
   it("on error: toast.error, does NOT call onOpenChange", async () => {
-    const profile = makeProfile("p1", "Work", []);
+    const profile = makeProfile("p1", "Work");
     setupStores([profile]);
     mockInvokeCommand.mockRejectedValue(new Error("write failed"));
     render(
@@ -168,7 +154,7 @@ describe("ProfileEditDialog", () => {
   });
 
   it("clicking Cancel calls onOpenChange(false)", async () => {
-    const profile = makeProfile("p1", "Work", []);
+    const profile = makeProfile("p1", "Work");
     setupStores([profile]);
     render(
       <ProfileEditDialog open={true} onOpenChange={mockOnOpenChange} profile={profile} />
@@ -178,7 +164,7 @@ describe("ProfileEditDialog", () => {
   });
 
   it("Save changes button is disabled when name is empty", async () => {
-    const profile = makeProfile("p1", "Work", []);
+    const profile = makeProfile("p1", "Work");
     setupStores([profile]);
     render(
       <ProfileEditDialog open={true} onOpenChange={mockOnOpenChange} profile={profile} />
@@ -190,7 +176,7 @@ describe("ProfileEditDialog", () => {
   });
 
   it("Save changes button is disabled and shows Saving while isSubmitting", async () => {
-    const profile = makeProfile("p1", "Work", []);
+    const profile = makeProfile("p1", "Work");
     setupStores([profile]);
     mockInvokeCommand.mockReturnValue(new Promise(() => {}));
     render(

@@ -16,15 +16,9 @@ export function MixedDiffBanner() {
   const profiles = useProfileStore((state) => state.profiles);
   const codeConfig = useConfigStore((state) => state.codeConfig);
 
-  const handleCreate = async (
-    name: string,
-    activeMcps: string[]
-  ): Promise<void> => {
+  const handleCreate = async (name: string): Promise<void> => {
     try {
-      const newProfile = await invokeCommand<Profile>("profile_create", {
-        name,
-        activeMcps,
-      });
+      const newProfile = await invokeCommand<Profile>("profile_create", { name });
       useProfileStore.getState().addProfile(newProfile);
       toast.success(`Profile ${name} created`, { duration: 3000 });
     } catch (err) {
@@ -41,9 +35,9 @@ export function MixedDiffBanner() {
     .filter(([, cfg]) => !cfg.disabled)
     .map(([name]) => name);
 
-  const profileSet = new Set(activeProfile.activeMcps);
+  const profileSet = new Set(Object.keys(activeProfile.mcpServers.code));
   const added = enabledInCode.filter((m) => !profileSet.has(m));
-  const missing = activeProfile.activeMcps.filter(
+  const missing = Object.keys(activeProfile.mcpServers.code).filter(
     (m) => !enabledInCode.includes(m)
   );
 

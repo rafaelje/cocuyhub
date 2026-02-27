@@ -464,6 +464,192 @@ describe("MCPRow", () => {
     });
   });
 
+  describe("inline description editing", () => {
+    it("shows description text when config._description is set", () => {
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [], _description: "My description" }} tool="code" enabled={true} />
+      );
+      expect(screen.getByText("My description")).not.toBeNull();
+    });
+
+    it('shows "Add description…" placeholder when no description and onDescriptionChange provided', () => {
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onDescriptionChange={vi.fn()} />
+      );
+      expect(screen.getByText("Add description…")).not.toBeNull();
+    });
+
+    it("shows nothing when no description and onDescriptionChange not provided", () => {
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true} />
+      );
+      expect(screen.queryByText("Add description…")).toBeNull();
+    });
+
+    it("clicking description span activates editing when onDescriptionChange is provided", async () => {
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onDescriptionChange={vi.fn()} />
+      );
+      await userEvent.click(screen.getByText("Add description…"));
+      expect(screen.getByRole("textbox", { name: "Description for my-server" })).not.toBeNull();
+    });
+
+    it("clicking description span does NOT activate editing when onDescriptionChange is not provided", async () => {
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [], _description: "Some desc" }} tool="code" enabled={true} />
+      );
+      await userEvent.click(screen.getByText("Some desc"));
+      expect(screen.queryByRole("textbox", { name: "Description for my-server" })).toBeNull();
+    });
+
+    it("typing description and pressing Enter calls onDescriptionChange with name and trimmed value", async () => {
+      const mockOnDescriptionChange = vi.fn().mockResolvedValue(undefined);
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onDescriptionChange={mockOnDescriptionChange} />
+      );
+      await userEvent.click(screen.getByText("Add description…"));
+      const input = screen.getByRole("textbox", { name: "Description for my-server" });
+      await userEvent.type(input, "My description");
+      await userEvent.keyboard("{Enter}");
+      expect(mockOnDescriptionChange).toHaveBeenCalledWith("my-server", "My description");
+    });
+
+    it("pressing Enter with empty string calls onDescriptionChange with null", async () => {
+      const mockOnDescriptionChange = vi.fn().mockResolvedValue(undefined);
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [], _description: "Old desc" }} tool="code" enabled={true}
+          onDescriptionChange={mockOnDescriptionChange} />
+      );
+      await userEvent.click(screen.getByText("Old desc"));
+      const input = screen.getByRole("textbox", { name: "Description for my-server" });
+      await userEvent.clear(input);
+      await userEvent.keyboard("{Enter}");
+      expect(mockOnDescriptionChange).toHaveBeenCalledWith("my-server", null);
+    });
+
+    it("pressing Escape cancels without calling onDescriptionChange", async () => {
+      const mockOnDescriptionChange = vi.fn();
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onDescriptionChange={mockOnDescriptionChange} />
+      );
+      await userEvent.click(screen.getByText("Add description…"));
+      const input = screen.getByRole("textbox", { name: "Description for my-server" });
+      await userEvent.type(input, "Some text");
+      await userEvent.keyboard("{Escape}");
+      expect(mockOnDescriptionChange).not.toHaveBeenCalled();
+      expect(screen.queryByRole("textbox", { name: "Description for my-server" })).toBeNull();
+    });
+
+    it("Escape then blur does NOT call onDescriptionChange (race condition guard)", async () => {
+      const mockOnDescriptionChange = vi.fn();
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onDescriptionChange={mockOnDescriptionChange} />
+      );
+      await userEvent.click(screen.getByText("Add description…"));
+      const input = screen.getByRole("textbox", { name: "Description for my-server" });
+      await userEvent.type(input, "Some text");
+      await userEvent.keyboard("{Escape}");
+      await userEvent.click(document.body);
+      expect(mockOnDescriptionChange).not.toHaveBeenCalled();
+    });
+
+    it("blur commits description", async () => {
+      const mockOnDescriptionChange = vi.fn().mockResolvedValue(undefined);
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onDescriptionChange={mockOnDescriptionChange} />
+      );
+      await userEvent.click(screen.getByText("Add description…"));
+      const input = screen.getByRole("textbox", { name: "Description for my-server" });
+      await userEvent.type(input, "Blurred desc");
+      await userEvent.click(document.body);
+      expect(mockOnDescriptionChange).toHaveBeenCalledWith("my-server", "Blurred desc");
+    });
+
+    it("when onDescriptionChange throws, editing stays open for retry", async () => {
+      const mockOnDescriptionChange = vi.fn().mockRejectedValue(new Error("backend error"));
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onDescriptionChange={mockOnDescriptionChange} />
+      );
+      await userEvent.click(screen.getByText("Add description…"));
+      const input = screen.getByRole("textbox", { name: "Description for my-server" });
+      await userEvent.type(input, "Some desc");
+      await userEvent.keyboard("{Enter}");
+      expect(mockOnDescriptionChange).toHaveBeenCalled();
+      expect(screen.getByRole("textbox", { name: "Description for my-server" })).not.toBeNull();
+    });
+
+    it("description input has aria-label for {name}", async () => {
+      render(
+        <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onDescriptionChange={vi.fn()} />
+      );
+      await userEvent.click(screen.getByText("Add description…"));
+      const input = screen.getByRole("textbox", { name: "Description for my-server" });
+      expect(input).not.toBeNull();
+      expect(input.getAttribute("aria-label")).toBe("Description for my-server");
+    });
+  });
+
+  // onCopyToGlobal and onCopyToDesktop button tests
+  describe("copy-to-global and copy-to-desktop buttons", () => {
+    it("renders onCopyToGlobal button with correct aria-label when prop provided", () => {
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onCopyToGlobal={vi.fn()} />
+      );
+      expect(screen.getByRole("button", { name: "Copy my-mcp to Global" })).not.toBeNull();
+    });
+
+    it("renders onCopyToDesktop button with correct aria-label when prop provided", () => {
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onCopyToDesktop={vi.fn()} />
+      );
+      expect(screen.getByRole("button", { name: "Copy my-mcp to Claude Desktop" })).not.toBeNull();
+    });
+
+    it("does not render onCopyToGlobal button when prop is not provided", () => {
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
+      );
+      expect(screen.queryByRole("button", { name: "Copy my-mcp to Global" })).toBeNull();
+    });
+
+    it("does not render onCopyToDesktop button when prop is not provided", () => {
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
+      );
+      expect(screen.queryByRole("button", { name: "Copy my-mcp to Claude Desktop" })).toBeNull();
+    });
+
+    it("calls onCopyToGlobal with name and config when button is clicked", async () => {
+      const mockCopy = vi.fn().mockResolvedValue(undefined);
+      const config = { command: "node", args: ["index.js"] };
+      render(
+        <MCPRow name="my-mcp" config={config} tool="code" enabled={true} onCopyToGlobal={mockCopy} />
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Copy my-mcp to Global" }));
+      expect(mockCopy).toHaveBeenCalledWith("my-mcp", config);
+    });
+
+    it("calls onCopyToDesktop with name and config when button is clicked", async () => {
+      const mockCopy = vi.fn().mockResolvedValue(undefined);
+      const config = { command: "node", args: ["index.js"] };
+      render(
+        <MCPRow name="my-mcp" config={config} tool="code" enabled={true} onCopyToDesktop={mockCopy} />
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Copy my-mcp to Claude Desktop" }));
+      expect(mockCopy).toHaveBeenCalledWith("my-mcp", config);
+    });
+  });
+
   // Re-sync: useEffect re-syncs optimisticEnabled when enabled prop changes
   it("re-syncs switch state when enabled prop changes from parent", () => {
     const { rerender } = render(

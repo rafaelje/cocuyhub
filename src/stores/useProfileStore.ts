@@ -65,14 +65,9 @@ export const useProfileStore = create<ProfileState>((_set, get) => ({
 
     if (!config) return false;
 
-    const enabledMcps = Object.entries(config.mcpServers)
-      .filter(([, cfg]) => cfg.disabled !== true)
-      .map(([name]) => name)
-      .sort();
-
-    const profileMcps = [...activeProfile.activeMcps].sort();
-
-    if (enabledMcps.length !== profileMcps.length) return true;
-    return enabledMcps.some((name, i) => name !== profileMcps[i]);
+    const profileSnapshot = activeProfile.mcpServers[tool];
+    const sortedProfile = JSON.stringify(Object.entries(profileSnapshot).sort());
+    const sortedCurrent = JSON.stringify(Object.entries(config.mcpServers).sort());
+    return sortedProfile !== sortedCurrent;
   },
 }));

@@ -14,12 +14,9 @@ export function ProfilesView() {
     useProfileStore.getState().fetchProfiles();
   }, []);
 
-  const handleCreate = async (name: string, activeMcps: string[]): Promise<void> => {
+  const handleCreate = async (name: string): Promise<void> => {
     try {
-      const newProfile = await invokeCommand<Profile>("profile_create", {
-        name,
-        activeMcps,
-      });
+      const newProfile = await invokeCommand<Profile>("profile_create", { name });
       useProfileStore.getState().addProfile(newProfile);
       toast.success(`Profile ${name} created`, { duration: 3000 });
     } catch (err) {

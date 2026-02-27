@@ -11,9 +11,10 @@ interface McpListProps {
   otherConfig?: ClaudeConfig | null;
   error?: CommandError | null;
   isLoading?: boolean;
+  noScroll?: boolean;
 }
 
-export function McpList({ config, tool, otherConfig, error, isLoading }: McpListProps) {
+export function McpList({ config, tool, otherConfig, error, isLoading, noScroll }: McpListProps) {
   const otherTool: ToolTarget = tool === "code" ? "desktop" : "code";
 
   const handleCopyToOther = async (name: string, mcpConfig: McpServerConfig): Promise<void> => {
@@ -55,6 +56,18 @@ export function McpList({ config, tool, otherConfig, error, isLoading }: McpList
       const msg = (err as { message?: string })?.message ?? "Unknown error";
       toast.error(`Failed to rename MCP: ${msg}`, { duration: Infinity });
       throw err; // Re-throw so MCPRow keeps editing open for retry (consistent with handleToggle)
+    }
+  };
+
+  const handleDescriptionChange = async (name: string, description: string | null): Promise<void> => {
+    try {
+      await invokeCommand("mcp_set_description", { name, description, tool });
+      await useConfigStore.getState().reloadConfig(tool);
+      toast.success(`Description updated for ${name}`, { duration: 3000 });
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ?? "Unknown error";
+      toast.error(`Failed to update description: ${msg}`, { duration: Infinity });
+      throw err; // Re-throw so MCPRow keeps editing open for retry
     }
   };
 
@@ -114,22 +127,25 @@ export function McpList({ config, tool, otherConfig, error, isLoading }: McpList
     );
   }
 
-  return (
-    <ScrollArea className="h-full">
-      {allEntries.map(({ name, mcpConfig, enabled }) => (
-        <MCPRow
-          key={name}
-          name={name}
-          config={mcpConfig}
-          tool={tool}
-          enabled={enabled}
-          onToggle={handleToggle}
-          onDelete={handleDelete}
-          onCopyToOther={otherConfig != null ? handleCopyToOther : undefined}
-          onRename={handleRename}
-          existingNames={allEntries.map((e) => e.name)}
-        />
-      ))}
-    </ScrollArea>
-  );
+  const rows = allEntries.map(({ name, mcpConfig, enabled }) => (
+    <MCPRow
+      key={name}
+      name={name}
+      config={mcpConfig}
+      tool={tool}
+      enabled={enabled}
+      onToggle={handleToggle}
+      onDelete={handleDelete}
+      onCopyToOther={otherConfig != null ? handleCopyToOther : undefined}
+      onRename={handleRename}
+      existingNames={allEntries.map((e) => e.name)}
+      onDescriptionChange={handleDescriptionChange}
+    />
+  ));
+
+  if (noScroll) {
+    return <div>{rows}</div>;
+  }
+
+  return <ScrollArea className="h-full">{rows}</ScrollArea>;
 }

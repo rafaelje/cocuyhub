@@ -15,6 +15,7 @@ interface AppState {
   externalChangeWarning: boolean;
   snapshotFormOpen: boolean;
   configActiveTool: ToolTarget;
+  activeProjectPath: string | null;
   updateVersion: string | null;
   downloadProgress: number | null;
   updateReady: boolean;
@@ -25,6 +26,7 @@ interface AppState {
   setExternalChangeWarning: (warning: boolean) => void;
   setSnapshotFormOpen: (open: boolean) => void;
   setConfigActiveTool: (tool: ToolTarget) => void;
+  setActiveProjectPath: (path: string | null) => void;
   setUpdateVersion: (version: string | null) => void;
   setDownloadProgress: (progress: number | null) => void;
   setUpdateReady: (ready: boolean) => void;
@@ -39,6 +41,7 @@ export const useAppStore = create<AppState>((set) => ({
   externalChangeWarning: false,
   snapshotFormOpen: false,
   configActiveTool: "code",
+  activeProjectPath: null,
   updateVersion: null,
   downloadProgress: null,
   updateReady: false,
@@ -58,7 +61,9 @@ export const useAppStore = create<AppState>((set) => ({
   setSnapshotFormOpen: (open: boolean) =>
     set((state) => ({ ...state, snapshotFormOpen: open })),
   setConfigActiveTool: (tool: ToolTarget) =>
-    set((state) => ({ ...state, configActiveTool: tool })),
+    set((state) => ({ ...state, configActiveTool: tool, activeProjectPath: null })),
+  setActiveProjectPath: (path: string | null) =>
+    set((state) => ({ ...state, activeProjectPath: path })),
   setUpdateVersion: (version) =>
     set((state) => ({ ...state, updateVersion: version })),
   setDownloadProgress: (progress) =>

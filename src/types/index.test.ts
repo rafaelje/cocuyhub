@@ -33,11 +33,14 @@ describe("TypeScript types smoke test", () => {
     const profile: Profile = {
       id: "abc",
       name: "Default",
-      activeMcps: ["server1"],
+      mcpServers: {
+        code: { "server1": { command: "node", args: [] } },
+        desktop: {},
+      },
       createdAt: "2026-01-01T00:00:00Z",
     };
     expect(profile.id).toBe("abc");
-    expect(profile.activeMcps).toHaveLength(1);
+    expect(Object.keys(profile.mcpServers.code)).toHaveLength(1);
   });
 
   it("Snapshot has required fields", () => {

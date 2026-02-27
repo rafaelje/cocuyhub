@@ -29,7 +29,7 @@ const mockConfig: ClaudeConfig = { mcpServers: {} };
 const makeProfile = (id: string, name: string): Profile => ({
   id,
   name,
-  activeMcps: [],
+  mcpServers: { code: {}, desktop: {} },
   createdAt: "2026-01-01T00:00:00Z",
 });
 
@@ -87,6 +87,7 @@ describe("ProfilesView", () => {
     const nameInput = dialog.querySelector("input[id='profile-name']") as HTMLInputElement;
     await userEvent.type(nameInput, "Work");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(mockInvokeCommand).toHaveBeenCalledWith("profile_create", { name: "Work" });
     expect(mockToastSuccess).toHaveBeenCalledWith("Profile Work created", {
       duration: 3000,
     });

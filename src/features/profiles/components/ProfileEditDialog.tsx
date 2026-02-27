@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { invokeCommand } from "@/lib/ipc";
-import { useConfigStore } from "@/stores/useConfigStore";
 import { useProfileStore } from "@/stores/useProfileStore";
 import type { Profile } from "@/types";
 
@@ -25,25 +24,19 @@ export function ProfileEditDialog({
   profile,
 }: ProfileEditDialogProps) {
   const [name, setName] = useState("");
-  const [selectedMcps, setSelectedMcps] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [nameError, setNameError] = useState("");
 
-  const codeConfig = useConfigStore((state) => state.codeConfig);
   const profiles = useProfileStore((state) => state.profiles);
-
-  const allMcpNames = Object.keys(codeConfig?.mcpServers ?? {});
 
   // Initialize from profile on open; reset on close
   useEffect(() => {
     if (open && profile) {
       setName(profile.name);
-      setSelectedMcps(new Set(profile.activeMcps));
       setNameError("");
     }
     if (!open) {
       setName("");
-      setSelectedMcps(new Set());
       setNameError("");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,15 +55,6 @@ export function ProfileEditDialog({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, profiles, profile?.id]);
 
-  const toggleMcp = (mcpName: string) => {
-    setSelectedMcps((prev) => {
-      const next = new Set(prev);
-      if (next.has(mcpName)) next.delete(mcpName);
-      else next.add(mcpName);
-      return next;
-    });
-  };
-
   const handleSave = async () => {
     if (!profile) return;
     setIsSubmitting(true);
@@ -78,7 +62,6 @@ export function ProfileEditDialog({
       const updated = await invokeCommand<Profile>("profile_update", {
         id: profile.id,
         name: name.trim(),
-        activeMcps: [...selectedMcps],
       });
       useProfileStore.getState().updateProfile(updated);
       toast.success(`Profile ${updated.name} updated`);
@@ -101,7 +84,7 @@ export function ProfileEditDialog({
         <DialogHeader>
           <DialogTitle>Edit Profile</DialogTitle>
           <DialogDescription>
-            Update profile name or MCP selection.
+            Update profile name.
           </DialogDescription>
         </DialogHeader>
 
@@ -130,28 +113,6 @@ export function ProfileEditDialog({
               <p className="text-xs text-red-400">{nameError}</p>
             )}
           </div>
-
-          {allMcpNames.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <span className="text-xs text-zinc-400">Active MCPs</span>
-              <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
-                {allMcpNames.map((mcpName) => (
-                  <label
-                    key={mcpName}
-                    className="flex items-center gap-2 px-2 py-1 rounded hover:bg-zinc-800/50 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedMcps.has(mcpName)}
-                      onChange={() => toggleMcp(mcpName)}
-                      className="accent-emerald-500"
-                    />
-                    <span className="text-sm text-zinc-200 truncate">{mcpName}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         <DialogFooter>

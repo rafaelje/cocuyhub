@@ -64,6 +64,15 @@ pub fn run() {
             commands::mcp::mcp_add_from_snippet,
             // Story 6.3 — MCP rename
             commands::mcp::mcp_rename,
+            // MCP inline description
+            commands::mcp::mcp_set_description,
+            // Per-project MCP management
+            commands::projects::project_mcp_toggle,
+            commands::projects::project_mcp_delete,
+            commands::projects::project_mcp_rename,
+            commands::projects::project_mcp_set_description,
+            commands::projects::project_mcp_add,
+            commands::projects::project_delete,
 // Story 7.2 — Auto-update check
             commands::updater::check_for_update,
             // Story 7.3 — Update installation

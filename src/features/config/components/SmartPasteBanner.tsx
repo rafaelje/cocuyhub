@@ -6,14 +6,21 @@ import { invokeCommand } from "@/lib/ipc";
 import { parseSnippet } from "@/lib/parse-snippet";
 import { useAppStore } from "@/stores/useAppStore";
 import { useConfigStore } from "@/stores/useConfigStore";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import type { ParsedMcp, ToolTarget } from "@/types";
 
-type InstallTarget = "code" | "desktop" | "both";
+type InstallTarget = "code" | "desktop" | "both" | "project";
 
 export function SmartPasteBanner() {
   const navigate = useNavigate();
   const [visible, setVisible] = useState(false);
-  const [showReview, setShowReview] = useState(false);
   const [parsedMcps, setParsedMcps] = useState<ParsedMcp[] | null>(null);
   const [parseSuccess, setParseSuccess] = useState(false);
   const [rawSnippet, setRawSnippet] = useState("");
@@ -21,31 +28,25 @@ export function SmartPasteBanner() {
   const [isInstalling, setIsInstalling] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const dismissedContentRef = useRef<string | null>(null);
-  // Ref mirrors rawSnippet state so dismiss() always reads current content
-  // even when called from a stale closure (e.g., Escape keydown effect)
   const rawSnippetRef = useRef("");
 
   const configActiveTool = useAppStore((s) => s.configActiveTool);
+  const activeProjectPath = useAppStore((s) => s.activeProjectPath);
   const { codeConfig, desktopConfig } = useConfigStore();
 
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData("text/plain") ?? "";
       if (!text.trim()) return;
-
-      // Suppress if same content as last dismissed
       if (text === dismissedContentRef.current) return;
-
-      // Only respond to JSON-like content (starts with '{')
       if (!text.trim().startsWith("{")) return;
 
       const result = parseSnippet(text);
       rawSnippetRef.current = text;
       setRawSnippet(text);
-      setShowReview(false);
       setDuplicateWarning(null);
       setIsInstalling(false);
-      setTarget(configActiveTool);
+      setTarget(configActiveTool === "code" && activeProjectPath !== null ? "project" : configActiveTool);
 
       if (result !== null) {
         setParsedMcps(result);
@@ -60,30 +61,17 @@ export function SmartPasteBanner() {
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [configActiveTool]);
-
-  useEffect(() => {
-    if (!visible) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") dismiss();
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [configActiveTool, activeProjectPath]);
 
   function dismiss() {
     dismissedContentRef.current = rawSnippetRef.current;
     setVisible(false);
-    setShowReview(false);
     setDuplicateWarning(null);
   }
 
   async function handleAddMcp(force = false) {
     if (!parsedMcps || parsedMcps.length === 0) return;
 
-    // Duplicate detection (skip if force=true/overwrite)
     if (!force) {
       const warnings: string[] = [];
       for (const mcp of parsedMcps) {
@@ -92,6 +80,10 @@ export function SmartPasteBanner() {
         }
         if ((target === "desktop" || target === "both") && desktopConfig?.mcpServers[mcp.name]) {
           warnings.push(`An MCP named "${mcp.name}" already exists in Claude Desktop.`);
+        }
+        if (target === "project" && activeProjectPath != null && codeConfig?.projects?.[activeProjectPath]?.mcpServers[mcp.name]) {
+          const basename = activeProjectPath.split("/").pop() ?? activeProjectPath;
+          warnings.push(`An MCP named "${mcp.name}" already exists in Project: ${basename}.`);
         }
       }
       if (warnings.length > 0) {
@@ -103,25 +95,41 @@ export function SmartPasteBanner() {
     setIsInstalling(true);
     setDuplicateWarning(null);
 
-    const targets: ToolTarget[] = target === "both" ? ["code", "desktop"] : [target];
+    const projectBasename = activeProjectPath?.split("/").pop() ?? activeProjectPath ?? "";
     const targetLabel =
       target === "both"
         ? "Claude Code and Claude Desktop"
         : target === "code"
         ? "Claude Code"
-        : "Claude Desktop";
+        : target === "desktop"
+        ? "Claude Desktop"
+        : `Project: ${projectBasename}`;
 
     try {
-      for (const mcp of parsedMcps) {
-        for (const t of targets) {
-          await invokeCommand("mcp_add_from_snippet", {
+      if (target === "project" && activeProjectPath != null) {
+        for (const mcp of parsedMcps) {
+          await invokeCommand("project_mcp_add", {
             name: mcp.name,
             command: mcp.command,
             args: mcp.args,
             env: mcp.env ?? null,
-            tool: t,
+            projectPath: activeProjectPath,
           });
-          await useConfigStore.getState().reloadConfig(t);
+          await useConfigStore.getState().reloadConfig("code");
+        }
+      } else {
+        const targets: ToolTarget[] = target === "both" ? ["code", "desktop"] : [target as ToolTarget];
+        for (const mcp of parsedMcps) {
+          for (const t of targets) {
+            await invokeCommand("mcp_add_from_snippet", {
+              name: mcp.name,
+              command: mcp.command,
+              args: mcp.args,
+              env: mcp.env ?? null,
+              tool: t,
+            });
+            await useConfigStore.getState().reloadConfig(t);
+          }
         }
       }
       const names = parsedMcps.map((m) => m.name).join(", ");
@@ -135,114 +143,120 @@ export function SmartPasteBanner() {
     }
   }
 
-  if (!visible) return null;
-
   return (
-    <div
-      role="alert"
-      aria-live="assertive"
-      className="shrink-0 border-b border-amber-500/50 bg-amber-950/50 text-amber-400 text-sm"
-    >
-      {/* Banner row */}
-      <div className="flex items-center gap-2 px-4 py-2">
-        <span aria-hidden="true">📋</span>
-        <span className="flex-1">Clipboard contains an MCP config — Add it?</span>
-        <button
-          onClick={() => setShowReview((prev) => !prev)}
-          className="px-2 py-0.5 text-xs rounded border border-amber-500/50 hover:bg-amber-500/20 transition-colors"
-        >
-          Review
-        </button>
-        <button
-          onClick={dismiss}
-          aria-label="Dismiss smart paste banner"
-          className="text-amber-400 hover:text-amber-200 transition-colors leading-none"
-        >
-          ✕
-        </button>
-      </div>
+    <Dialog open={visible} onOpenChange={(open) => { if (!open) dismiss(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <span aria-hidden="true">📋</span>
+            MCP detected in clipboard
+          </DialogTitle>
+          <DialogDescription>
+            {parseSuccess
+              ? "Review the MCP below and choose where to install it."
+              : "The clipboard content could not be parsed as an MCP config."}
+          </DialogDescription>
+        </DialogHeader>
 
-      {/* Review panel */}
-      {showReview && (
-        <div className="px-4 pb-3 border-t border-amber-500/30">
-          {parseSuccess && parsedMcps ? (
-            <div className="space-y-2 pt-2">
+        {parseSuccess && parsedMcps ? (
+          <div className="space-y-3">
+            {/* MCP preview cards */}
+            <div className="space-y-2 max-h-48 overflow-y-auto">
               {parsedMcps.map((mcp) => (
                 <McpPreviewCard key={mcp.name} mcp={mcp} />
               ))}
+            </div>
 
-              {/* Target selector */}
-              <div className="flex gap-1 pt-1">
+            {/* Target selector */}
+            <div>
+              <p className="text-xs text-zinc-400 mb-1.5">Install to</p>
+              <div className="flex flex-wrap gap-1.5">
                 {(["code", "desktop", "both"] as const).map((t) => (
                   <button
                     key={t}
-                    onClick={() => {
-                      setTarget(t);
-                      setDuplicateWarning(null);
-                    }}
+                    onClick={() => { setTarget(t); setDuplicateWarning(null); }}
                     className={cn(
-                      "px-2 py-0.5 text-xs rounded border transition-colors",
+                      "px-2.5 py-1 text-xs rounded border transition-colors",
                       target === t
                         ? "border-amber-500 bg-amber-500/20 text-amber-300"
                         : "border-zinc-600 text-zinc-400 hover:bg-zinc-700"
                     )}
                   >
-                    {t === "code"
-                      ? "Claude Code"
-                      : t === "desktop"
-                      ? "Claude Desktop"
-                      : "Both"}
+                    {t === "code" ? "Claude Code" : t === "desktop" ? "Claude Desktop" : "Both"}
                   </button>
                 ))}
+                {configActiveTool === "code" && activeProjectPath != null && (
+                  <button
+                    onClick={() => { setTarget("project"); setDuplicateWarning(null); }}
+                    className={cn(
+                      "px-2.5 py-1 text-xs rounded border transition-colors",
+                      target === "project"
+                        ? "border-amber-500 bg-amber-500/20 text-amber-300"
+                        : "border-zinc-600 text-zinc-400 hover:bg-zinc-700"
+                    )}
+                  >
+                    Project: {activeProjectPath.split("/").pop() ?? activeProjectPath}
+                  </button>
+                )}
               </div>
+            </div>
 
-              {/* Duplicate warning */}
-              {duplicateWarning && (
-                <div className="text-xs text-yellow-400 bg-yellow-950/40 border border-yellow-500/30 rounded p-2">
-                  <p>{duplicateWarning}</p>
-                  <div className="flex gap-2 mt-1">
-                    <button
-                      onClick={() => setDuplicateWarning(null)}
-                      className="px-2 py-0.5 rounded border border-zinc-600 text-zinc-400 hover:bg-zinc-700 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => handleAddMcp(true)}
-                      className="px-2 py-0.5 rounded border border-yellow-500/50 text-yellow-300 hover:bg-yellow-500/20 transition-colors"
-                    >
-                      Overwrite
-                    </button>
-                  </div>
+            {/* Duplicate warning */}
+            {duplicateWarning && (
+              <div className="text-xs text-yellow-400 bg-yellow-950/40 border border-yellow-500/30 rounded p-2 space-y-1.5">
+                <p>{duplicateWarning}</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setDuplicateWarning(null)}
+                    className="px-2 py-0.5 rounded border border-zinc-600 text-zinc-400 hover:bg-zinc-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleAddMcp(true)}
+                    className="px-2 py-0.5 rounded border border-yellow-500/50 text-yellow-300 hover:bg-yellow-500/20 transition-colors"
+                  >
+                    Overwrite
+                  </button>
                 </div>
-              )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <pre className="text-xs text-zinc-400 bg-zinc-900 rounded p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-all">
+              {rawSnippet}
+            </pre>
+          </div>
+        )}
 
-              {/* Add MCP button */}
-              <button
-                onClick={() => handleAddMcp(false)}
-                disabled={isInstalling}
-                className="px-3 py-1 text-xs rounded bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50"
-              >
-                {isInstalling ? "Adding..." : "Add MCP"}
-              </button>
-            </div>
-          ) : (
-            <div className="pt-2 space-y-2">
-              <p className="text-amber-300 font-medium">Could not parse as MCP config</p>
-              <pre className="text-xs text-zinc-400 bg-zinc-900 rounded p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-all">
-                {rawSnippet}
-              </pre>
-              <button
-                onClick={() => navigate("/editor")}
-                className="text-xs px-2 py-1 rounded border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors"
-              >
-                Open in Editor
-              </button>
-            </div>
+        <DialogFooter className="gap-2 sm:gap-2">
+          {!parseSuccess && (
+            <button
+              onClick={() => { dismiss(); navigate("/editor"); }}
+              className="px-3 py-1.5 text-sm rounded border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors"
+            >
+              Open in Editor
+            </button>
           )}
-        </div>
-      )}
-    </div>
+          <button
+            onClick={dismiss}
+            className="px-3 py-1.5 text-sm rounded border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition-colors"
+          >
+            Cancel
+          </button>
+          {parseSuccess && (
+            <button
+              onClick={() => handleAddMcp(false)}
+              disabled={isInstalling}
+              className="px-3 py-1.5 text-sm rounded bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50"
+            >
+              {isInstalling ? "Adding…" : "Add MCP"}
+            </button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -252,8 +266,8 @@ interface McpPreviewCardProps {
 
 function McpPreviewCard({ mcp }: McpPreviewCardProps) {
   return (
-    <div className="rounded border border-amber-500/20 bg-zinc-900/50 p-2 text-xs space-y-1">
-      <div className="font-medium text-amber-300">{mcp.name}</div>
+    <div className="rounded border border-zinc-700 bg-zinc-900 p-2 text-xs space-y-1">
+      <div className="font-medium text-zinc-100">{mcp.name}</div>
       <div className="text-zinc-400">
         <span className="text-zinc-500">command: </span>
         {mcp.command}

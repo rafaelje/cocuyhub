@@ -33,7 +33,7 @@ import type { Profile } from "@/types";
 const makeProfile = (id: string, name: string): Profile => ({
   id,
   name,
-  activeMcps: ["mcp-a"],
+  mcpServers: { code: { "mcp-a": { command: "node", args: [] } }, desktop: {} },
   createdAt: "2026-01-01T00:00:00Z",
 });
 

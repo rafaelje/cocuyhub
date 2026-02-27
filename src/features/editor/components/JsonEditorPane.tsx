@@ -32,6 +32,10 @@ const CLAUDE_CONFIG_SCHEMA = {
             additionalProperties: { type: "string" },
             description: "Environment variables for the MCP server process",
           },
+          _description: {
+            type: "string",
+            description: "Optional human-readable description for this MCP server (master-panel metadata)",
+          },
         },
       },
     },

@@ -49,7 +49,7 @@ pub fn mcp_toggle(
 /// Pure function: apply toggle to a parsed JSON value.
 /// Moves the MCP entry between `mcpServers` (enabled) and `disabledMcps` (disabled).
 /// Extracted for unit testing without AppHandle.
-fn apply_toggle(
+pub(crate) fn apply_toggle(
     json: &mut serde_json::Value,
     name: &str,
     enabled: bool,
@@ -143,7 +143,7 @@ pub fn mcp_delete(
 
 /// Pure function: remove a named MCP from mcpServers or disabledMcps.
 /// Searches mcpServers first, then disabledMcps. Returns error if not found in either.
-fn apply_delete(
+pub(crate) fn apply_delete(
     json: &mut serde_json::Value,
     name: &str,
 ) -> Result<(), CommandError> {
@@ -217,7 +217,7 @@ pub fn mcp_rename(
 /// Pure function: rename an MCP entry key in mcpServers or disabledMcps.
 /// Searches mcpServers first, then disabledMcps.
 /// Returns WriteError if old_name is not found, or if new_name already exists in either node.
-fn apply_rename(
+pub(crate) fn apply_rename(
     json: &mut serde_json::Value,
     old_name: &str,
     new_name: &str,
@@ -345,7 +345,7 @@ pub fn mcp_add_from_snippet(
 
 /// Pure function: insert or overwrite a named MCP in the mcpServers map.
 /// Extracted for unit testing without AppHandle.
-fn apply_add_from_snippet(
+pub(crate) fn apply_add_from_snippet(
     json: &mut serde_json::Value,
     name: &str,
     command: &str,
@@ -390,6 +390,76 @@ fn apply_add_from_snippet(
     mcp_servers.insert(name.to_string(), serde_json::Value::Object(entry));
 
     Ok(())
+}
+
+/// Set or clear the _description field on a named MCP (in mcpServers or disabledMcps).
+/// If description is None or empty string, removes the _description field.
+#[tauri::command]
+pub fn mcp_set_description(
+    name: String,
+    description: Option<String>,
+    tool: ToolTarget,
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+) -> Result<(), CommandError> {
+    let settings = crate::commands::config::config_load_settings()?;
+    let path = match &tool {
+        ToolTarget::Code => settings.code_path,
+        ToolTarget::Desktop => settings.desktop_path,
+    }
+    .ok_or_else(|| CommandError::WriteError {
+        message: format!("No path configured for {:?}", tool),
+    })?;
+
+    let content = std::fs::read_to_string(&path).map_err(|e| CommandError::ReadError {
+        message: format!("Failed to read config: {}", e),
+    })?;
+
+    let mut json: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| CommandError::ParseError {
+            message: format!("Invalid JSON: {}", e),
+        })?;
+
+    apply_set_description(&mut json, &name, description.as_deref())?;
+
+    let new_content = serde_json::to_string_pretty(&json).map_err(|e| CommandError::WriteError {
+        message: format!("Failed to serialize config: {}", e),
+    })?;
+
+    crate::commands::config::write_pipeline(&path, &new_content, &tool, &app, &state)?;
+
+    Ok(())
+}
+
+/// Pure function: set or remove _description on a named MCP entry.
+/// Searches mcpServers first, then disabledMcps.
+/// description = None or "" → removes the field; otherwise sets it.
+pub(crate) fn apply_set_description(
+    json: &mut serde_json::Value,
+    name: &str,
+    description: Option<&str>,
+) -> Result<(), CommandError> {
+    for node_key in &["mcpServers", "disabledMcps"] {
+        if let Some(entry) = json
+            .get_mut(*node_key)
+            .and_then(|v| v.as_object_mut())
+            .and_then(|m| m.get_mut(name))
+            .and_then(|v| v.as_object_mut())
+        {
+            match description {
+                Some(d) if !d.is_empty() => {
+                    entry.insert("_description".to_string(), serde_json::Value::String(d.to_string()));
+                }
+                _ => {
+                    entry.remove("_description");
+                }
+            }
+            return Ok(());
+        }
+    }
+    Err(CommandError::WriteError {
+        message: format!("MCP '{}' not found in config", name),
+    })
 }
 
 #[cfg(test)]
@@ -817,5 +887,87 @@ mod tests {
         let mut config = json!({ "mcpServers": {} });
         apply_add_from_snippet(&mut config, "my-mcp", "node", &[], Some(&env)).unwrap();
         assert!(config["mcpServers"]["my-mcp"].get("env").is_none());
+    }
+
+    // apply_set_description tests
+
+    #[test]
+    fn test_set_description_on_active_mcp() {
+        let mut config = json!({
+            "mcpServers": {
+                "my-mcp": { "command": "node", "args": [] }
+            }
+        });
+        apply_set_description(&mut config, "my-mcp", Some("Fetches GitHub issues")).unwrap();
+        assert_eq!(config["mcpServers"]["my-mcp"]["_description"], json!("Fetches GitHub issues"));
+    }
+
+    #[test]
+    fn test_set_description_on_disabled_mcp() {
+        let mut config = json!({
+            "mcpServers": {},
+            "disabledMcps": {
+                "my-mcp": { "command": "node", "args": [] }
+            }
+        });
+        apply_set_description(&mut config, "my-mcp", Some("A disabled server")).unwrap();
+        assert_eq!(config["disabledMcps"]["my-mcp"]["_description"], json!("A disabled server"));
+    }
+
+    #[test]
+    fn test_clear_description_with_none() {
+        let mut config = json!({
+            "mcpServers": {
+                "my-mcp": { "command": "node", "args": [], "_description": "Old desc" }
+            }
+        });
+        apply_set_description(&mut config, "my-mcp", None).unwrap();
+        assert!(config["mcpServers"]["my-mcp"].get("_description").is_none());
+    }
+
+    #[test]
+    fn test_clear_description_with_empty_string() {
+        let mut config = json!({
+            "mcpServers": {
+                "my-mcp": { "command": "node", "args": [], "_description": "Old desc" }
+            }
+        });
+        apply_set_description(&mut config, "my-mcp", Some("")).unwrap();
+        assert!(config["mcpServers"]["my-mcp"].get("_description").is_none());
+    }
+
+    #[test]
+    fn test_set_description_preserves_other_fields() {
+        let mut config = json!({
+            "mcpServers": {
+                "my-mcp": {
+                    "command": "python",
+                    "args": ["-m", "server"],
+                    "env": { "TOKEN": "abc123" }
+                }
+            }
+        });
+        apply_set_description(&mut config, "my-mcp", Some("A description")).unwrap();
+        let mcp = &config["mcpServers"]["my-mcp"];
+        assert_eq!(mcp["command"], json!("python"));
+        assert_eq!(mcp["args"], json!(["-m", "server"]));
+        assert_eq!(mcp["env"]["TOKEN"], json!("abc123"));
+        assert_eq!(mcp["_description"], json!("A description"));
+    }
+
+    #[test]
+    fn test_set_description_returns_error_when_not_found() {
+        let mut config = json!({
+            "mcpServers": {},
+            "disabledMcps": {}
+        });
+        let result = apply_set_description(&mut config, "ghost", Some("desc"));
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CommandError::WriteError { message } => {
+                assert!(message.contains("ghost"));
+            }
+            other => panic!("Expected WriteError, got {:?}", other),
+        }
     }
 }

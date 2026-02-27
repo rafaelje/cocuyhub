@@ -1,7 +1,8 @@
 use crate::commands::config::{get_settings_file_path, write_pipeline};
 use crate::errors::CommandError;
-use crate::models::{AppSettings, ClaudeConfig, Profile, ToolTarget};
+use crate::models::{AppSettings, ClaudeConfig, Profile, ProfileMcpServers, ToolTarget};
 use crate::AppState;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::Emitter;
 use uuid::Uuid;
@@ -28,9 +29,11 @@ fn read_profiles() -> Result<Vec<Profile>, CommandError> {
     let content = std::fs::read_to_string(&path).map_err(|e| CommandError::ReadError {
         message: format!("Failed to read profiles.json: {}", e),
     })?;
-    serde_json::from_str(&content).map_err(|e| CommandError::ParseError {
-        message: format!("Failed to parse profiles.json: {}", e),
-    })
+    // Incompatible schema (e.g., old active_mcps format) — treat as empty so user can recreate profiles
+    match serde_json::from_str(&content) {
+        Ok(profiles) => Ok(profiles),
+        Err(_) => Ok(vec![]),
+    }
 }
 
 /// Atomic write: serialize profiles to temp file then rename.
@@ -68,7 +71,6 @@ pub fn profile_list() -> Result<Vec<Profile>, CommandError> {
 #[tauri::command]
 pub fn profile_create(
     name: String,
-    active_mcps: Vec<String>,
     app: tauri::AppHandle,
     _state: tauri::State<'_, AppState>,
 ) -> Result<Profile, CommandError> {
@@ -81,10 +83,67 @@ pub fn profile_create(
         });
     }
 
+    // Load settings to get config paths
+    let settings_path = get_settings_file_path()?;
+    let settings: AppSettings = if settings_path.exists() {
+        let content =
+            std::fs::read_to_string(&settings_path).map_err(|e| CommandError::ReadError {
+                message: format!("Failed to read settings: {}", e),
+            })?;
+        serde_json::from_str(&content).map_err(|e| CommandError::ParseError {
+            message: format!("Failed to parse settings: {}", e),
+        })?
+    } else {
+        AppSettings::default()
+    };
+
+    // Snapshot code config
+    let code_mcps: HashMap<String, crate::models::McpServerConfig> = if let Some(path) = &settings.code_path {
+        let target = PathBuf::from(path);
+        if target.exists() {
+            let content =
+                std::fs::read_to_string(&target).map_err(|e| CommandError::ReadError {
+                    message: format!("Failed to read code config: {}", e),
+                })?;
+            let config: ClaudeConfig =
+                serde_json::from_str(&content).map_err(|e| CommandError::ParseError {
+                    message: format!("Failed to parse code config: {}", e),
+                })?;
+            config.mcp_servers
+        } else {
+            HashMap::new()
+        }
+    } else {
+        HashMap::new()
+    };
+
+    // Snapshot desktop config
+    let desktop_mcps: HashMap<String, crate::models::McpServerConfig> = if let Some(path) = &settings.desktop_path {
+        let target = PathBuf::from(path);
+        if target.exists() {
+            let content =
+                std::fs::read_to_string(&target).map_err(|e| CommandError::ReadError {
+                    message: format!("Failed to read desktop config: {}", e),
+                })?;
+            let config: ClaudeConfig =
+                serde_json::from_str(&content).map_err(|e| CommandError::ParseError {
+                    message: format!("Failed to parse desktop config: {}", e),
+                })?;
+            config.mcp_servers
+        } else {
+            HashMap::new()
+        }
+    } else {
+        HashMap::new()
+    };
+
     let profile = Profile {
         id: Uuid::new_v4().to_string(),
         name: name.clone(),
-        active_mcps,
+        mcp_servers: ProfileMcpServers {
+            code: code_mcps,
+            desktop: desktop_mcps,
+        },
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 
@@ -149,14 +208,11 @@ pub fn profile_apply(
                 message: format!("Failed to parse config: {}", e),
             })?;
 
-        // Apply profile: enable profile MCPs, disable the rest
-        for (name, server) in config.mcp_servers.iter_mut() {
-            if profile.active_mcps.contains(name) {
-                server.disabled = None;
-            } else {
-                server.disabled = Some(true);
-            }
-        }
+        // Replace entire mcpServers with the profile snapshot for this tool
+        config.mcp_servers = match tool {
+            ToolTarget::Code => profile.mcp_servers.code.clone(),
+            ToolTarget::Desktop => profile.mcp_servers.desktop.clone(),
+        };
 
         let updated_json =
             serde_json::to_string_pretty(&config).map_err(|e| CommandError::WriteError {
@@ -175,7 +231,6 @@ pub fn profile_apply(
 pub fn profile_update(
     id: String,
     name: String,
-    active_mcps: Vec<String>,
     app: tauri::AppHandle,
     _state: tauri::State<'_, AppState>,
 ) -> Result<Profile, CommandError> {
@@ -197,7 +252,6 @@ pub fn profile_update(
     }
 
     profiles[idx].name = name.clone();
-    profiles[idx].active_mcps = active_mcps.clone();
     let updated = profiles[idx].clone();
 
     write_profiles(&profiles)?;
@@ -269,17 +323,21 @@ mod tests {
 
     #[test]
     fn test_profile_update_duplicate_name_returns_error() {
+        let empty_mcps = || crate::models::ProfileMcpServers {
+            code: std::collections::HashMap::new(),
+            desktop: std::collections::HashMap::new(),
+        };
         let profiles = vec![
             Profile {
                 id: "p1".to_string(),
                 name: "Work".to_string(),
-                active_mcps: vec![],
+                mcp_servers: empty_mcps(),
                 created_at: "2026-01-01T00:00:00Z".to_string(),
             },
             Profile {
                 id: "p2".to_string(),
                 name: "Research".to_string(),
-                active_mcps: vec![],
+                mcp_servers: empty_mcps(),
                 created_at: "2026-01-01T00:00:00Z".to_string(),
             },
         ];

@@ -91,7 +91,7 @@ export const ProfileSwitcher = forwardRef<ProfileSwitcherHandle>(
                     <span className="truncate">{p.name}</span>
                   </div>
                   <span className="text-xs text-zinc-500 shrink-0">
-                    {p.activeMcps.length} MCPs
+                    {Object.keys(p.mcpServers.code).length} MCPs
                   </span>
                 </DropdownMenuItem>
               ))

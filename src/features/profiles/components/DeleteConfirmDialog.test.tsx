@@ -26,7 +26,7 @@ const mockOnOpenChange = vi.fn();
 const makeProfile = (id: string, name: string): Profile => ({
   id,
   name,
-  activeMcps: [],
+  mcpServers: { code: {}, desktop: {} },
   createdAt: "2026-01-01T00:00:00Z",
 });
 

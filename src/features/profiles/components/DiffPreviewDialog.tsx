@@ -39,7 +39,7 @@ export function DiffPreviewDialog({
       .map(([n]) => n),
   ]);
 
-  const profileMcps = new Set(profile.activeMcps);
+  const profileMcps = new Set(Object.keys(profile.mcpServers.code));
 
   const activating = [...profileMcps].filter((m) => !enabledMcps.has(m));
   const deactivating = [...enabledMcps].filter((m) => !profileMcps.has(m));
@@ -110,30 +110,19 @@ export function DiffPreviewDialog({
         )}
 
         <div className="flex justify-end gap-2 mt-2">
-          {noChanges ? (
-            <button
-              onClick={() => onOpenChange(false)}
-              className="px-3 py-1.5 text-sm text-zinc-300 hover:text-zinc-100 bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
-            >
-              Close
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={() => onOpenChange(false)}
-                className="px-3 py-1.5 text-sm text-zinc-300 hover:text-zinc-100 bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleApply}
-                disabled={isApplying}
-                className="px-3 py-1.5 text-sm text-zinc-100 bg-emerald-600 hover:bg-emerald-500 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isApplying ? "Applying..." : "Apply Profile"}
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => onOpenChange(false)}
+            className="px-3 py-1.5 text-sm text-zinc-300 hover:text-zinc-100 bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleApply}
+            disabled={isApplying}
+            className="px-3 py-1.5 text-sm text-zinc-100 bg-emerald-600 hover:bg-emerald-500 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isApplying ? "Applying..." : "Apply Profile"}
+          </button>
         </div>
       </DialogContent>
     </Dialog>
