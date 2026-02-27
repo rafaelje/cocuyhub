@@ -6,11 +6,11 @@ export interface McpServerConfig {
   command: string;
   args: string[];
   env?: Record<string, string>;
-  disabled?: boolean;
 }
 
 export interface ClaudeConfig {
   mcpServers: Record<string, McpServerConfig>;
+  disabledMcps?: Record<string, McpServerConfig>;
 }
 
 export interface Profile {

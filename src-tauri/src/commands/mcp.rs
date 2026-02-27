@@ -47,37 +47,59 @@ pub fn mcp_toggle(
 }
 
 /// Pure function: apply toggle to a parsed JSON value.
+/// Moves the MCP entry between `mcpServers` (enabled) and `disabledMcps` (disabled).
 /// Extracted for unit testing without AppHandle.
 fn apply_toggle(
     json: &mut serde_json::Value,
     name: &str,
     enabled: bool,
 ) -> Result<(), CommandError> {
-    let mcp_servers = json
-        .get_mut("mcpServers")
-        .and_then(|v| v.as_object_mut())
-        .ok_or_else(|| CommandError::WriteError {
-            message: "Config has no mcpServers field".to_string(),
-        })?;
-
-    let mcp = mcp_servers
-        .get_mut(name)
-        .ok_or_else(|| CommandError::WriteError {
-            message: format!("MCP '{}' not found in config", name),
-        })?;
-
     if enabled {
-        // Enabling: remove "disabled" key entirely (absent = enabled)
-        if let Some(obj) = mcp.as_object_mut() {
-            obj.remove("disabled");
+        // No-op if already in mcpServers
+        if json
+            .get("mcpServers")
+            .and_then(|v| v.as_object())
+            .map(|m| m.contains_key(name))
+            .unwrap_or(false)
+        {
+            return Ok(());
         }
+        // Move from disabledMcps → mcpServers
+        let entry = json
+            .get_mut("disabledMcps")
+            .and_then(|v| v.as_object_mut())
+            .and_then(|m| m.remove(name))
+            .ok_or_else(|| CommandError::WriteError {
+                message: format!("MCP '{}' not found in disabledMcps", name),
+            })?;
+        if json.get("mcpServers").is_none() {
+            json["mcpServers"] = serde_json::Value::Object(serde_json::Map::new());
+        }
+        json["mcpServers"]
+            .as_object_mut()
+            .ok_or_else(|| CommandError::WriteError {
+                message: "mcpServers is not an object".to_string(),
+            })?
+            .insert(name.to_string(), entry);
     } else {
-        // Disabling: set "disabled": true
-        if let Some(obj) = mcp.as_object_mut() {
-            obj.insert("disabled".to_string(), serde_json::Value::Bool(true));
+        // Move from mcpServers → disabledMcps
+        let entry = json
+            .get_mut("mcpServers")
+            .and_then(|v| v.as_object_mut())
+            .and_then(|m| m.remove(name))
+            .ok_or_else(|| CommandError::WriteError {
+                message: format!("MCP '{}' not found in mcpServers", name),
+            })?;
+        if json.get("disabledMcps").is_none() {
+            json["disabledMcps"] = serde_json::Value::Object(serde_json::Map::new());
         }
+        json["disabledMcps"]
+            .as_object_mut()
+            .ok_or_else(|| CommandError::WriteError {
+                message: "disabledMcps is not an object".to_string(),
+            })?
+            .insert(name.to_string(), entry);
     }
-
     Ok(())
 }
 
@@ -119,70 +141,164 @@ pub fn mcp_delete(
     Ok(())
 }
 
-/// Pure function: remove a named MCP from the mcpServers map.
+/// Pure function: remove a named MCP from mcpServers or disabledMcps.
+/// Searches mcpServers first, then disabledMcps. Returns error if not found in either.
 fn apply_delete(
     json: &mut serde_json::Value,
     name: &str,
 ) -> Result<(), CommandError> {
-    let mcp_servers = json
+    // Try mcpServers first
+    let removed_active = json
         .get_mut("mcpServers")
         .and_then(|v| v.as_object_mut())
-        .ok_or_else(|| CommandError::WriteError {
-            message: "Config has no mcpServers field".to_string(),
-        })?;
+        .map(|m| m.remove(name).is_some())
+        .unwrap_or(false);
 
-    if mcp_servers.remove(name).is_none() {
-        return Err(CommandError::WriteError {
-            message: format!("MCP '{}' not found in config", name),
-        });
+    if removed_active {
+        return Ok(());
     }
 
-    Ok(())
+    // Try disabledMcps
+    let removed_disabled = json
+        .get_mut("disabledMcps")
+        .and_then(|v| v.as_object_mut())
+        .map(|m| m.remove(name).is_some())
+        .unwrap_or(false);
+
+    if removed_disabled {
+        return Ok(());
+    }
+
+    Err(CommandError::WriteError {
+        message: format!("MCP '{}' not found in config", name),
+    })
 }
 
-/// Copy the entire config from one tool to another via the full write pipeline.
-/// The source config is read as-is and written to the destination (auto-snapshot included).
-/// Returns an error if source and destination are the same tool.
+
+/// Rename a named MCP in a config file via the full write pipeline.
+/// Searches mcpServers first, then disabledMcps. Preserves all original fields.
 #[tauri::command]
-pub fn copy_config(
-    source: ToolTarget,
-    destination: ToolTarget,
+pub fn mcp_rename(
+    old_name: String,
+    new_name: String,
+    tool: ToolTarget,
     app: tauri::AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<(), CommandError> {
-    if source == destination {
-        return Err(CommandError::WriteError {
-            message: "Source and destination cannot be the same tool".to_string(),
-        });
-    }
-
     let settings = crate::commands::config::config_load_settings()?;
-
-    let source_path = match &source {
-        ToolTarget::Code => settings.code_path.clone(),
-        ToolTarget::Desktop => settings.desktop_path.clone(),
-    }
-    .ok_or_else(|| CommandError::WriteError {
-        message: format!("No path configured for source {:?}", source),
-    })?;
-
-    let destination_path = match &destination {
+    let path = match &tool {
         ToolTarget::Code => settings.code_path,
         ToolTarget::Desktop => settings.desktop_path,
     }
     .ok_or_else(|| CommandError::WriteError {
-        message: format!("No path configured for destination {:?}", destination),
+        message: format!("No path configured for {:?}", tool),
     })?;
 
-    // Read source content as raw string — preserves exact JSON formatting
-    let content = std::fs::read_to_string(&source_path).map_err(|e| CommandError::ReadError {
-        message: format!("Failed to read source config: {}", e),
+    let content = std::fs::read_to_string(&path).map_err(|e| CommandError::ReadError {
+        message: format!("Failed to read config: {}", e),
     })?;
 
-    // Write to destination via full pipeline (auto-snapshot → atomic write → emit)
-    crate::commands::config::write_pipeline(&destination_path, &content, &destination, &app, &state)?;
+    let mut json: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| CommandError::ParseError {
+            message: format!("Invalid JSON: {}", e),
+        })?;
+
+    apply_rename(&mut json, &old_name, &new_name)?;
+
+    let new_content = serde_json::to_string_pretty(&json).map_err(|e| CommandError::WriteError {
+        message: format!("Failed to serialize config: {}", e),
+    })?;
+
+    crate::commands::config::write_pipeline(&path, &new_content, &tool, &app, &state)?;
 
     Ok(())
+}
+
+/// Pure function: rename an MCP entry key in mcpServers or disabledMcps.
+/// Searches mcpServers first, then disabledMcps.
+/// Returns WriteError if old_name is not found, or if new_name already exists in either node.
+fn apply_rename(
+    json: &mut serde_json::Value,
+    old_name: &str,
+    new_name: &str,
+) -> Result<(), CommandError> {
+    // F4: server-side validation — reject empty or non-alphanumeric names
+    if new_name.is_empty() {
+        return Err(CommandError::WriteError {
+            message: "MCP name cannot be empty".to_string(),
+        });
+    }
+    if !new_name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(CommandError::WriteError {
+            message: "MCP name can only contain letters, numbers, hyphens and underscores"
+                .to_string(),
+        });
+    }
+
+    // F6: no-op if old_name == new_name — avoids unnecessary write pipeline execution
+    if old_name == new_name {
+        return Err(CommandError::WriteError {
+            message: format!("MCP '{}' already exists in config", new_name),
+        });
+    }
+
+    // Check collision: new_name must not already exist in either node
+    let new_exists_in_active = json
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .map(|m| m.contains_key(new_name))
+        .unwrap_or(false);
+
+    let new_exists_in_disabled = json
+        .get("disabledMcps")
+        .and_then(|v| v.as_object())
+        .map(|m| m.contains_key(new_name))
+        .unwrap_or(false);
+
+    if new_exists_in_active || new_exists_in_disabled {
+        return Err(CommandError::WriteError {
+            message: format!("MCP '{}' already exists in config", new_name),
+        });
+    }
+
+    // Try mcpServers first
+    let entry_from_active = json
+        .get_mut("mcpServers")
+        .and_then(|v| v.as_object_mut())
+        .and_then(|m| m.remove(old_name));
+
+    if let Some(entry) = entry_from_active {
+        json["mcpServers"]
+            .as_object_mut()
+            .ok_or_else(|| CommandError::WriteError {
+                message: "mcpServers is not an object".to_string(),
+            })?
+            .insert(new_name.to_string(), entry);
+        return Ok(());
+    }
+
+    // Try disabledMcps
+    let entry_from_disabled = json
+        .get_mut("disabledMcps")
+        .and_then(|v| v.as_object_mut())
+        .and_then(|m| m.remove(old_name));
+
+    if let Some(entry) = entry_from_disabled {
+        json["disabledMcps"]
+            .as_object_mut()
+            .ok_or_else(|| CommandError::WriteError {
+                message: "disabledMcps is not an object".to_string(),
+            })?
+            .insert(new_name.to_string(), entry);
+        return Ok(());
+    }
+
+    Err(CommandError::WriteError {
+        message: format!("MCP '{}' not found in config", old_name),
+    })
 }
 
 /// Add a new MCP from a parsed snippet to a config file via the full write pipeline.
@@ -281,55 +397,71 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[test]
-    fn test_toggle_enables_mcp_removes_disabled_key() {
-        let mut config = json!({
-            "mcpServers": {
-                "my-mcp": { "command": "node", "args": [], "disabled": true }
-            }
-        });
-        apply_toggle(&mut config, "my-mcp", true).unwrap();
-        let mcp = &config["mcpServers"]["my-mcp"];
-        assert!(mcp.get("disabled").is_none(), "disabled key should be removed when enabling");
-    }
+    // apply_toggle tests
 
     #[test]
-    fn test_toggle_disables_mcp_sets_disabled_true() {
+    fn test_toggle_disables_mcp_moves_to_disabled_node() {
         let mut config = json!({
             "mcpServers": {
                 "my-mcp": { "command": "node", "args": [] }
             }
         });
         apply_toggle(&mut config, "my-mcp", false).unwrap();
-        assert_eq!(config["mcpServers"]["my-mcp"]["disabled"], json!(true));
+        assert!(config["mcpServers"].get("my-mcp").is_none(), "MCP should be removed from mcpServers");
+        assert!(config["disabledMcps"].get("my-mcp").is_some(), "MCP should appear in disabledMcps");
     }
 
     #[test]
-    fn test_toggle_preserves_unknown_fields() {
+    fn test_toggle_enables_mcp_moves_to_active_node() {
+        let mut config = json!({
+            "mcpServers": {},
+            "disabledMcps": {
+                "my-mcp": { "command": "node", "args": [] }
+            }
+        });
+        apply_toggle(&mut config, "my-mcp", true).unwrap();
+        assert!(config["disabledMcps"].get("my-mcp").is_none(), "MCP should be removed from disabledMcps");
+        assert!(config["mcpServers"].get("my-mcp").is_some(), "MCP should appear in mcpServers");
+    }
+
+    #[test]
+    fn test_toggle_creates_disabled_mcps_node_if_absent() {
+        let mut config = json!({
+            "mcpServers": {
+                "my-mcp": { "command": "node", "args": [] }
+            }
+        });
+        assert!(config.get("disabledMcps").is_none());
+        apply_toggle(&mut config, "my-mcp", false).unwrap();
+        assert!(config.get("disabledMcps").is_some(), "disabledMcps node should be created");
+    }
+
+    #[test]
+    fn test_toggle_preserves_all_mcp_fields_when_moving() {
         let mut config = json!({
             "mcpServers": {
                 "my-mcp": {
-                    "command": "node",
-                    "args": [],
-                    "type": "stdio",
-                    "customField": "some-value"
+                    "command": "python",
+                    "args": ["-m", "server"],
+                    "env": { "TOKEN": "abc123" }
                 }
             }
         });
         apply_toggle(&mut config, "my-mcp", false).unwrap();
-        assert_eq!(config["mcpServers"]["my-mcp"]["type"], json!("stdio"));
-        assert_eq!(config["mcpServers"]["my-mcp"]["customField"], json!("some-value"));
-        assert_eq!(config["mcpServers"]["my-mcp"]["disabled"], json!(true));
+        let mcp = &config["disabledMcps"]["my-mcp"];
+        assert_eq!(mcp["command"], json!("python"));
+        assert_eq!(mcp["args"], json!(["-m", "server"]));
+        assert_eq!(mcp["env"]["TOKEN"], json!("abc123"));
     }
 
     #[test]
-    fn test_toggle_returns_error_for_missing_mcp() {
+    fn test_toggle_disable_returns_error_if_mcp_not_in_active() {
         let mut config = json!({
             "mcpServers": {
                 "other-mcp": { "command": "node", "args": [] }
             }
         });
-        let result = apply_toggle(&mut config, "nonexistent-mcp", true);
+        let result = apply_toggle(&mut config, "nonexistent-mcp", false);
         assert!(result.is_err());
         match result.unwrap_err() {
             CommandError::WriteError { message } => {
@@ -340,31 +472,48 @@ mod tests {
     }
 
     #[test]
-    fn test_toggle_returns_error_when_no_mcp_servers_field() {
-        let mut config = json!({ "otherField": "value" });
-        let result = apply_toggle(&mut config, "any-mcp", true);
+    fn test_toggle_enable_returns_error_if_not_in_either_node() {
+        let mut config = json!({
+            "mcpServers": {},
+            "disabledMcps": {}
+        });
+        let result = apply_toggle(&mut config, "ghost-mcp", true);
         assert!(result.is_err());
         match result.unwrap_err() {
             CommandError::WriteError { message } => {
-                assert!(message.contains("mcpServers"));
+                assert!(message.contains("ghost-mcp"));
             }
             other => panic!("Expected WriteError, got {:?}", other),
         }
     }
 
     #[test]
-    fn test_toggle_enable_when_already_enabled_is_noop() {
+    fn test_toggle_enable_is_noop_if_already_in_mcpservers() {
         let mut config = json!({
             "mcpServers": {
                 "my-mcp": { "command": "node", "args": [] }
             }
         });
-        apply_toggle(&mut config, "my-mcp", true).unwrap();
-        // disabled should still not be present
-        assert!(config["mcpServers"]["my-mcp"].get("disabled").is_none());
+        let result = apply_toggle(&mut config, "my-mcp", true);
+        assert!(result.is_ok(), "should be a no-op Ok(())");
+        assert!(config["mcpServers"].get("my-mcp").is_some(), "MCP should still be in mcpServers");
     }
 
-    // apply_delete tests (Story 2.5)
+    #[test]
+    fn test_toggle_preserves_other_active_mcps() {
+        let mut config = json!({
+            "mcpServers": {
+                "my-mcp": { "command": "node", "args": [] },
+                "other-mcp": { "command": "python", "args": ["-m", "server"] }
+            }
+        });
+        apply_toggle(&mut config, "my-mcp", false).unwrap();
+        assert!(config["mcpServers"].get("my-mcp").is_none());
+        assert!(config["mcpServers"].get("other-mcp").is_some(), "other MCPs should be untouched");
+        assert_eq!(config["mcpServers"]["other-mcp"]["command"], json!("python"));
+    }
+
+    // apply_delete tests
 
     #[test]
     fn test_delete_removes_mcp() {
@@ -415,10 +564,180 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             CommandError::WriteError { message } => {
-                assert!(message.contains("mcpServers"));
+                assert!(message.contains("any-mcp"));
             }
             other => panic!("Expected WriteError, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_delete_removes_from_disabled_mcps() {
+        let mut config = json!({
+            "mcpServers": {},
+            "disabledMcps": {
+                "my-mcp": { "command": "node", "args": [] }
+            }
+        });
+        apply_delete(&mut config, "my-mcp").unwrap();
+        assert!(config["disabledMcps"].get("my-mcp").is_none(), "MCP should be removed from disabledMcps");
+    }
+
+    #[test]
+    fn test_delete_returns_error_when_not_in_either_node() {
+        let mut config = json!({
+            "mcpServers": {},
+            "disabledMcps": {}
+        });
+        let result = apply_delete(&mut config, "ghost-mcp");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CommandError::WriteError { message } => {
+                assert!(message.contains("ghost-mcp"));
+            }
+            other => panic!("Expected WriteError, got {:?}", other),
+        }
+    }
+
+    // apply_rename tests
+
+    #[test]
+    fn test_rename_in_mcp_servers() {
+        let mut config = json!({
+            "mcpServers": {
+                "old-name": { "command": "node", "args": ["index.js"] }
+            }
+        });
+        apply_rename(&mut config, "old-name", "new-name").unwrap();
+        assert!(config["mcpServers"].get("old-name").is_none(), "old key should be gone");
+        assert!(config["mcpServers"].get("new-name").is_some(), "new key should exist");
+    }
+
+    #[test]
+    fn test_rename_in_disabled_mcps() {
+        let mut config = json!({
+            "mcpServers": {},
+            "disabledMcps": {
+                "old-name": { "command": "node", "args": [] }
+            }
+        });
+        apply_rename(&mut config, "old-name", "new-name").unwrap();
+        assert!(config["disabledMcps"].get("old-name").is_none(), "old key should be gone from disabledMcps");
+        assert!(config["disabledMcps"].get("new-name").is_some(), "new key should exist in disabledMcps");
+    }
+
+    #[test]
+    fn test_rename_returns_error_if_old_name_not_found() {
+        let mut config = json!({
+            "mcpServers": {},
+            "disabledMcps": {}
+        });
+        let result = apply_rename(&mut config, "nonexistent", "new-name");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CommandError::WriteError { message } => {
+                assert!(message.contains("nonexistent"));
+            }
+            other => panic!("Expected WriteError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rename_returns_error_when_no_sections_present() {
+        let mut config = json!({});
+        let result = apply_rename(&mut config, "any-mcp", "new-name");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CommandError::WriteError { message } => {
+                assert!(message.contains("any-mcp"));
+            }
+            other => panic!("Expected WriteError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rename_returns_error_for_empty_new_name() {
+        let mut config = json!({
+            "mcpServers": { "my-mcp": { "command": "node", "args": [] } }
+        });
+        let result = apply_rename(&mut config, "my-mcp", "");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CommandError::WriteError { message } => {
+                assert!(message.contains("empty"));
+            }
+            other => panic!("Expected WriteError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rename_returns_error_for_invalid_characters_in_new_name() {
+        let mut config = json!({
+            "mcpServers": { "my-mcp": { "command": "node", "args": [] } }
+        });
+        let result = apply_rename(&mut config, "my-mcp", "bad name");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CommandError::WriteError { message } => {
+                assert!(message.contains("letters"));
+            }
+            other => panic!("Expected WriteError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rename_returns_error_if_new_name_exists_in_mcp_servers() {
+        let mut config = json!({
+            "mcpServers": {
+                "old-name": { "command": "node", "args": [] },
+                "existing": { "command": "python", "args": [] }
+            }
+        });
+        let result = apply_rename(&mut config, "old-name", "existing");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CommandError::WriteError { message } => {
+                assert!(message.contains("existing"));
+            }
+            other => panic!("Expected WriteError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rename_returns_error_if_new_name_exists_in_disabled_mcps() {
+        let mut config = json!({
+            "mcpServers": {
+                "old-name": { "command": "node", "args": [] }
+            },
+            "disabledMcps": {
+                "disabled-one": { "command": "python", "args": [] }
+            }
+        });
+        let result = apply_rename(&mut config, "old-name", "disabled-one");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CommandError::WriteError { message } => {
+                assert!(message.contains("disabled-one"));
+            }
+            other => panic!("Expected WriteError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rename_preserves_all_fields() {
+        let mut config = json!({
+            "mcpServers": {
+                "old-name": {
+                    "command": "python",
+                    "args": ["-m", "server"],
+                    "env": { "TOKEN": "abc123" }
+                }
+            }
+        });
+        apply_rename(&mut config, "old-name", "new-name").unwrap();
+        let mcp = &config["mcpServers"]["new-name"];
+        assert_eq!(mcp["command"], json!("python"));
+        assert_eq!(mcp["args"], json!(["-m", "server"]));
+        assert_eq!(mcp["env"]["TOKEN"], json!("abc123"));
     }
 
     // apply_add_from_snippet tests (Story 6.2)

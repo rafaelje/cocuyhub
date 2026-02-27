@@ -4,8 +4,6 @@ import type { ClaudeConfig, CommandError, ToolTarget } from "@/types";
 import { useAppStore } from "@/stores/useAppStore";
 import { McpList } from "./McpList";
 import { ProcessWarningBanner } from "./ProcessWarningBanner";
-import { CopyConfigButton } from "./CopyConfigButton";
-
 interface ToolTabsProps {
   codeConfig: ClaudeConfig | null;
   desktopConfig: ClaudeConfig | null;
@@ -49,14 +47,10 @@ export function ToolTabs({
 
       <TabsPrimitive.Content value="code" className="flex-1 overflow-hidden flex flex-col">
         <ProcessWarningBanner tool="code" />
-        <CopyConfigButton
-          source="code"
-          destination="desktop"
-          hidden={!codeConfig || !desktopConfig}
-        />
         <McpList
           config={codeConfig}
           tool="code"
+          otherConfig={desktopConfig}
           error={codeError}
           isLoading={isLoading}
         />
@@ -64,14 +58,10 @@ export function ToolTabs({
 
       <TabsPrimitive.Content value="desktop" className="flex-1 overflow-hidden flex flex-col">
         <ProcessWarningBanner tool="desktop" />
-        <CopyConfigButton
-          source="desktop"
-          destination="code"
-          hidden={!codeConfig || !desktopConfig}
-        />
         <McpList
           config={desktopConfig}
           tool="desktop"
+          otherConfig={codeConfig}
           error={desktopError}
           isLoading={isLoading}
         />

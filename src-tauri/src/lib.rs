@@ -62,9 +62,9 @@ pub fn run() {
             commands::mcp::mcp_delete,
             // Story 6.2 — MCP installation from snippet
             commands::mcp::mcp_add_from_snippet,
-            // Story 7.1 — Copy config between tools
-            commands::mcp::copy_config,
-            // Story 7.2 — Auto-update check
+            // Story 6.3 — MCP rename
+            commands::mcp::mcp_rename,
+// Story 7.2 — Auto-update check
             commands::updater::check_for_update,
             // Story 7.3 — Update installation
             commands::updater::download_and_install_update,

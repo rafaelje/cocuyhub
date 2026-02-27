@@ -1,42 +1,50 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+
+import { toast } from "sonner";
 import { MCPRow } from "./MCPRow";
 
+// Mock navigator.clipboard
+Object.defineProperty(navigator, "clipboard", {
+  value: { writeText: vi.fn().mockResolvedValue(undefined) },
+  writable: true,
+});
+
 describe("MCPRow", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(navigator.clipboard.writeText).mockResolvedValue(undefined);
+  });
+
   it("renders MCP name in a code element", () => {
     render(
-      <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" />
+      <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true} />
     );
     const code = screen.getByText("my-server");
     expect(code.tagName).toBe("CODE");
   });
 
-  it("shows switch as checked when disabled is not set", () => {
+  it("shows switch as checked when enabled prop is true", () => {
     render(
-      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" />
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
     );
     const switchEl = screen.getByRole("switch");
     expect(switchEl.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("shows switch as checked when disabled is explicitly false", () => {
+  it("shows switch as unchecked when enabled prop is false", () => {
     render(
-      <MCPRow name="mcp" config={{ command: "node", args: [], disabled: false }} tool="code" />
-    );
-    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
-  });
-
-  it("shows switch as unchecked when disabled is true", () => {
-    render(
-      <MCPRow name="mcp" config={{ command: "node", args: [], disabled: true }} tool="code" />
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={false} />
     );
     expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false");
   });
 
   it("has correct aria-label for code tool", () => {
     render(
-      <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" />
+      <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="code" enabled={true} />
     );
     expect(screen.getByRole("switch").getAttribute("aria-label")).toBe(
       "Enable my-server in Claude Code"
@@ -45,7 +53,7 @@ describe("MCPRow", () => {
 
   it("has correct aria-label for desktop tool", () => {
     render(
-      <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="desktop" />
+      <MCPRow name="my-server" config={{ command: "node", args: [] }} tool="desktop" enabled={true} />
     );
     expect(screen.getByRole("switch").getAttribute("aria-label")).toBe(
       "Enable my-server in Claude Desktop"
@@ -54,21 +62,21 @@ describe("MCPRow", () => {
 
   it("has role='article' on the outer container", () => {
     render(
-      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" />
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
     );
     expect(screen.getByRole("article")).not.toBeNull();
   });
 
   it("shows a Claude Code badge for code tool", () => {
     render(
-      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" />
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
     );
     expect(screen.getByText("Claude Code")).not.toBeNull();
   });
 
   it("shows a Claude Desktop badge for desktop tool", () => {
     render(
-      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="desktop" />
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="desktop" enabled={true} />
     );
     expect(screen.getByText("Claude Desktop")).not.toBeNull();
   });
@@ -81,6 +89,7 @@ describe("MCPRow", () => {
         name="mcp"
         config={{ command: "node", args: [] }}
         tool="code"
+        enabled={true}
         onToggle={mockOnToggle}
       />
     );
@@ -98,8 +107,9 @@ describe("MCPRow", () => {
     render(
       <MCPRow
         name="mcp"
-        config={{ command: "node", args: [], disabled: true }}
+        config={{ command: "node", args: [] }}
         tool="code"
+        enabled={false}
         onToggle={mockOnToggle}
       />
     );
@@ -115,8 +125,9 @@ describe("MCPRow", () => {
     render(
       <MCPRow
         name="mcp"
-        config={{ command: "node", args: [], disabled: true }}
+        config={{ command: "node", args: [] }}
         tool="code"
+        enabled={false}
         onToggle={mockOnToggle}
       />
     );
@@ -136,6 +147,7 @@ describe("MCPRow", () => {
         name="mcp"
         config={{ command: "node", args: [] }}
         tool="code"
+        enabled={true}
         onToggle={mockOnToggle}
       />
     );
@@ -150,7 +162,7 @@ describe("MCPRow", () => {
 
   it("does nothing when switch is clicked without onToggle prop", async () => {
     render(
-      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" />
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
     );
     const switchEl = screen.getByRole("switch");
     // Should not throw
@@ -162,7 +174,7 @@ describe("MCPRow", () => {
   it("delete button has correct aria-label for code tool", () => {
     const mockOnDelete = vi.fn().mockResolvedValue(undefined);
     render(
-      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" onDelete={mockOnDelete} />
+      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} onDelete={mockOnDelete} />
     );
     expect(
       screen.getByRole("button", { name: "Remove my-mcp from Claude Code" })
@@ -172,7 +184,7 @@ describe("MCPRow", () => {
   it("delete button has correct aria-label for desktop tool", () => {
     const mockOnDelete = vi.fn().mockResolvedValue(undefined);
     render(
-      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="desktop" onDelete={mockOnDelete} />
+      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="desktop" enabled={true} onDelete={mockOnDelete} />
     );
     expect(
       screen.getByRole("button", { name: "Remove my-mcp from Claude Desktop" })
@@ -182,7 +194,7 @@ describe("MCPRow", () => {
   it("clicking delete button opens confirmation dialog", async () => {
     const mockOnDelete = vi.fn().mockResolvedValue(undefined);
     render(
-      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" onDelete={mockOnDelete} />
+      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} onDelete={mockOnDelete} />
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Remove my-mcp from Claude Code" })
@@ -194,7 +206,7 @@ describe("MCPRow", () => {
   it("clicking Cancel in dialog does NOT call onDelete", async () => {
     const mockOnDelete = vi.fn();
     render(
-      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" onDelete={mockOnDelete} />
+      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} onDelete={mockOnDelete} />
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Remove my-mcp from Claude Code" })
@@ -206,7 +218,7 @@ describe("MCPRow", () => {
   it("clicking Confirm in dialog calls onDelete with name", async () => {
     const mockOnDelete = vi.fn().mockResolvedValue(undefined);
     render(
-      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" onDelete={mockOnDelete} />
+      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} onDelete={mockOnDelete} />
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Remove my-mcp from Claude Code" })
@@ -219,7 +231,7 @@ describe("MCPRow", () => {
   it("dialog closes after clicking Confirm", async () => {
     const mockOnDelete = vi.fn().mockResolvedValue(undefined);
     render(
-      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" onDelete={mockOnDelete} />
+      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} onDelete={mockOnDelete} />
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Remove my-mcp from Claude Code" })
@@ -231,24 +243,238 @@ describe("MCPRow", () => {
 
   it("no delete button rendered when onDelete prop is not provided", () => {
     render(
-      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" />
+      <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
     );
     expect(
       screen.queryByRole("button", { name: "Remove my-mcp from Claude Code" })
     ).toBeNull();
   });
 
-  // M2 fix: useEffect re-syncs optimisticEnabled when config.disabled prop changes
-  it("re-syncs switch state when config.disabled prop changes from parent", () => {
+  // copy-to-other button tests
+  it("shows copy-to-other button when onCopyToOther is provided", () => {
+    render(
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+        onCopyToOther={vi.fn()} />
+    );
+    expect(screen.getByRole("button", { name: "Copy mcp to Claude Desktop" })).not.toBeNull();
+  });
+
+  it("does not show copy-to-other button when onCopyToOther is not provided", () => {
+    render(
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
+    );
+    expect(screen.queryByRole("button", { name: "Copy mcp to Claude Desktop" })).toBeNull();
+  });
+
+  it("calls onCopyToOther with name and config when copy-to-other button is clicked", async () => {
+    const mockCopy = vi.fn().mockResolvedValue(undefined);
+    const config = { command: "node", args: ["index.js"] };
+    render(<MCPRow name="mcp" config={config} tool="code" enabled={true} onCopyToOther={mockCopy} />);
+    await userEvent.click(screen.getByRole("button", { name: "Copy mcp to Claude Desktop" }));
+    expect(mockCopy).toHaveBeenCalledWith("mcp", config);
+  });
+
+  it("uses correct other tool label for desktop tool", () => {
+    render(
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="desktop" enabled={true}
+        onCopyToOther={vi.fn()} />
+    );
+    expect(screen.getByRole("button", { name: "Copy mcp to Claude Code" })).not.toBeNull();
+  });
+
+  // copy JSON button tests
+  it("copy JSON button is always visible regardless of onCopyToOther", () => {
+    render(
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
+    );
+    expect(screen.getByRole("button", { name: "Copy JSON for mcp" })).not.toBeNull();
+  });
+
+  it("copy JSON button writes correct snippet to clipboard", async () => {
+    const config = { command: "node", args: ["index.js"], env: { TOKEN: "abc" } };
+    render(<MCPRow name="my-mcp" config={config} tool="code" enabled={true} />);
+    await userEvent.click(screen.getByRole("button", { name: "Copy JSON for my-mcp" }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      JSON.stringify({ mcpServers: { "my-mcp": config } }, null, 2)
+    );
+  });
+
+  it("copy JSON shows success toast after writing to clipboard", async () => {
+    render(<MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />);
+    await userEvent.click(screen.getByRole("button", { name: "Copy JSON for mcp" }));
+    expect(vi.mocked(toast.success)).toHaveBeenCalledWith("JSON copied to clipboard", { duration: 3000 });
+  });
+
+  // Inline rename tests
+  describe("inline rename", () => {
+    it("double-click on name shows input with current value when onRename is provided", async () => {
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={vi.fn()} existingNames={["my-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      const input = screen.getByRole("textbox");
+      expect(input).not.toBeNull();
+      expect((input as HTMLInputElement).value).toBe("my-mcp");
+    });
+
+    it("double-click on name does NOT show input when onRename is not provided", async () => {
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      expect(screen.queryByRole("textbox")).toBeNull();
+    });
+
+    it("typing a new name and pressing Enter calls onRename with old and new name", async () => {
+      const mockOnRename = vi.fn().mockResolvedValue(undefined);
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={mockOnRename} existingNames={["my-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      const input = screen.getByRole("textbox");
+      await userEvent.clear(input);
+      await userEvent.type(input, "new-name");
+      await userEvent.keyboard("{Enter}");
+      expect(mockOnRename).toHaveBeenCalledWith("my-mcp", "new-name");
+    });
+
+    it("pressing Escape cancels and restores original name without calling onRename", async () => {
+      const mockOnRename = vi.fn();
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={mockOnRename} existingNames={["my-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      const input = screen.getByRole("textbox");
+      await userEvent.clear(input);
+      await userEvent.type(input, "different-name");
+      await userEvent.keyboard("{Escape}");
+      expect(mockOnRename).not.toHaveBeenCalled();
+      expect(screen.queryByRole("textbox")).toBeNull();
+      expect(screen.getByText("my-mcp")).not.toBeNull();
+    });
+
+    it("F1: pressing Escape then blur does NOT call onRename (race condition guard)", async () => {
+      // Escape sets cancelledRef; the subsequent blur must be ignored
+      const mockOnRename = vi.fn();
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={mockOnRename} existingNames={["my-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      const input = screen.getByRole("textbox");
+      await userEvent.clear(input);
+      await userEvent.type(input, "valid-name");
+      // Escape first — then click away (triggers blur)
+      await userEvent.keyboard("{Escape}");
+      await userEvent.click(document.body);
+      expect(mockOnRename).not.toHaveBeenCalled();
+    });
+
+    it("blur on the input calls onRename", async () => {
+      const mockOnRename = vi.fn().mockResolvedValue(undefined);
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={mockOnRename} existingNames={["my-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      const input = screen.getByRole("textbox");
+      await userEvent.clear(input);
+      await userEvent.type(input, "blurred-name");
+      // F9: use userEvent.click away to trigger blur in a way that userEvent tracks
+      await userEvent.click(document.body);
+      expect(mockOnRename).toHaveBeenCalledWith("my-mcp", "blurred-name");
+    });
+
+    it("pressing Enter with empty name shows toast.error and does not call onRename", async () => {
+      const mockOnRename = vi.fn();
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={mockOnRename} existingNames={["my-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      const input = screen.getByRole("textbox");
+      await userEvent.clear(input);
+      await userEvent.keyboard("{Enter}");
+      expect(vi.mocked(toast.error)).toHaveBeenCalled();
+      expect(mockOnRename).not.toHaveBeenCalled();
+    });
+
+    it("pressing Enter with invalid characters shows toast.error and does not call onRename", async () => {
+      const mockOnRename = vi.fn();
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={mockOnRename} existingNames={["my-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      const input = screen.getByRole("textbox");
+      await userEvent.clear(input);
+      await userEvent.type(input, "bad name");
+      await userEvent.keyboard("{Enter}");
+      expect(vi.mocked(toast.error)).toHaveBeenCalled();
+      expect(mockOnRename).not.toHaveBeenCalled();
+    });
+
+    it("pressing Enter with a name that already exists shows toast.error and does not call onRename", async () => {
+      const mockOnRename = vi.fn();
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={mockOnRename} existingNames={["my-mcp", "other-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      const input = screen.getByRole("textbox");
+      await userEvent.clear(input);
+      await userEvent.type(input, "other-mcp");
+      await userEvent.keyboard("{Enter}");
+      expect(vi.mocked(toast.error)).toHaveBeenCalled();
+      expect(mockOnRename).not.toHaveBeenCalled();
+    });
+
+    it("confirming the same name cancels silently without calling onRename", async () => {
+      const mockOnRename = vi.fn();
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={mockOnRename} existingNames={["my-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      await userEvent.keyboard("{Enter}");
+      expect(mockOnRename).not.toHaveBeenCalled();
+      expect(screen.queryByRole("textbox")).toBeNull();
+    });
+
+    it("when onRename throws, editing stays open for retry and original name is NOT shown", async () => {
+      // F5: editing stays open on backend error so the user can correct and retry
+      // F10: the original name in the code element is not visible (input is shown instead)
+      const mockOnRename = vi.fn().mockRejectedValue(new Error("backend error"));
+      render(
+        <MCPRow name="my-mcp" config={{ command: "node", args: [] }} tool="code" enabled={true}
+          onRename={mockOnRename} existingNames={["my-mcp"]} />
+      );
+      await userEvent.dblClick(screen.getByText("my-mcp"));
+      const input = screen.getByRole("textbox");
+      await userEvent.clear(input);
+      await userEvent.type(input, "new-name");
+      await userEvent.keyboard("{Enter}");
+      expect(mockOnRename).toHaveBeenCalledWith("my-mcp", "new-name");
+      // Editing remains open — input is still visible, code element is not
+      expect(screen.getByRole("textbox")).not.toBeNull();
+      expect(screen.queryByText("my-mcp")).toBeNull();
+    });
+  });
+
+  // Re-sync: useEffect re-syncs optimisticEnabled when enabled prop changes
+  it("re-syncs switch state when enabled prop changes from parent", () => {
     const { rerender } = render(
-      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" />
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={true} />
     );
     const switchEl = screen.getByRole("switch");
     expect(switchEl.getAttribute("aria-checked")).toBe("true");
 
-    // Simulate parent updating config (e.g., after store reload confirms disabled)
+    // Simulate parent updating prop (e.g., after store reload confirms disabled)
     rerender(
-      <MCPRow name="mcp" config={{ command: "node", args: [], disabled: true }} tool="code" />
+      <MCPRow name="mcp" config={{ command: "node", args: [] }} tool="code" enabled={false} />
     );
     expect(switchEl.getAttribute("aria-checked")).toBe("false");
   });

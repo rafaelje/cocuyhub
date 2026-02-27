@@ -169,25 +169,20 @@ describe("ConfigView", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  // Story 7.1: Copy config button visibility
-  it("does not show copy button when only code config is loaded", () => {
+  // Per-MCP copy-to-other button visibility
+  it("does not show per-MCP copy-to-other button when only one config is loaded", () => {
     mockUseConfigStore.mockReturnValue(defaultState({ codeConfig }));
     render(<ConfigView />);
-    expect(screen.queryByRole("button", { name: "Copy to Claude Desktop" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Copy code-mcp to Claude Desktop" })
+    ).toBeNull();
   });
 
-  it("does not show copy button when only desktop config is loaded", async () => {
-    mockUseConfigStore.mockReturnValue(defaultState({ desktopConfig }));
-    render(<ConfigView />);
-    // Switch to Desktop tab to see its content
-    const desktopTab = screen.getByRole("tab", { name: "Claude Desktop" });
-    await userEvent.click(desktopTab);
-    expect(screen.queryByRole("button", { name: "Copy to Claude Code" })).toBeNull();
-  });
-
-  it("shows copy button when both configs are loaded", () => {
+  it("shows per-MCP copy-to-other button when both configs are loaded", () => {
     mockUseConfigStore.mockReturnValue(defaultState({ codeConfig, desktopConfig }));
     render(<ConfigView />);
-    expect(screen.getByRole("button", { name: "Copy to Claude Desktop" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Copy code-mcp to Claude Desktop" })
+    ).not.toBeNull();
   });
 });
