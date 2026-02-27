@@ -68,6 +68,7 @@ vi.mock("@monaco-editor/react", () => ({
   ),
 }));
 
+import type { ToolTarget } from "@/types";
 import Editor from "@monaco-editor/react";
 import { useConfigStore } from "@/stores/useConfigStore";
 import { useSettingsStore } from "@/stores/useSettingsStore";
@@ -121,7 +122,7 @@ describe("JsonEditorPane", () => {
     capturedOnMount = undefined;
     capturedOnChange = undefined;
     mockMonaco.languages.json.jsonDefaults.setDiagnosticsOptions = vi.fn();
-    useAppStore.setState((state) => ({ ...state, editorDirty: false, externalChangeWarning: false }));
+    useAppStore.setState((state) => ({ ...state, editorDirty: false, externalChangeWarning: false, configActiveTool: "code" as ToolTarget }));
   });
 
   afterEach(() => {
@@ -137,6 +138,18 @@ describe("JsonEditorPane", () => {
     expect(
       screen.getByRole("tab", { name: "Claude Desktop" })
     ).not.toBeNull();
+  });
+
+  it("shows Claude Desktop tab as active when store has configActiveTool='desktop'", () => {
+    useAppStore.setState((s) => ({ ...s, configActiveTool: "desktop" as ToolTarget }));
+    setupStore(null, null);
+    render(<JsonEditorPane />);
+    expect(
+      screen.getByRole("tab", { name: "Claude Desktop" }).getAttribute("aria-selected")
+    ).toBe("true");
+    expect(
+      screen.getByRole("tab", { name: "Claude Code" }).getAttribute("aria-selected")
+    ).toBe("false");
   });
 
   it("Claude Code tab is active by default (aria-selected=true)", () => {

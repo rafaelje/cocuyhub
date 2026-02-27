@@ -19,11 +19,11 @@ interface NavItemConfig {
 }
 
 const NAV_ITEMS: NavItemConfig[] = [
-  { path: "/config",    label: "Config",    icon: Settings2,         shortcutNum: 1 },
-  { path: "/editor",   label: "Editor",    icon: Code2,             shortcutNum: 2 },
-  { path: "/profiles", label: "Profiles",  icon: User,              shortcutNum: 3 },
-  { path: "/snapshots",label: "Snapshots", icon: History,           shortcutNum: 4 },
-  { path: "/settings", label: "Settings",  icon: SlidersHorizontal, shortcutNum: 5 },
+  { path: "/config",    label: "Config MCP", icon: Settings2,         shortcutNum: 1 },
+  { path: "/editor",   label: "Editor",     icon: Code2,             shortcutNum: 2 },
+  { path: "/profiles", label: "Profiles",   icon: User,              shortcutNum: 3 },
+  { path: "/snapshots",label: "Snapshots",  icon: History,           shortcutNum: 4 },
+  { path: "/settings", label: "Settings",   icon: SlidersHorizontal, shortcutNum: 5 },
 ];
 
 interface NavItemProps {

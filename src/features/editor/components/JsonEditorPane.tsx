@@ -40,7 +40,6 @@ const CLAUDE_CONFIG_SCHEMA = {
 };
 
 export function JsonEditorPane() {
-  const [activeTool, setActiveTool] = useState<ToolTarget>("code");
   const [position, setPosition] = useState({ line: 1, column: 1 });
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
@@ -56,6 +55,8 @@ export function JsonEditorPane() {
   const setEditorDirty = useAppStore((state) => state.setEditorDirty);
   const externalChangeWarning = useAppStore((state) => state.externalChangeWarning);
   const setExternalChangeWarning = useAppStore((state) => state.setExternalChangeWarning);
+  const activeTool = useAppStore((state) => state.configActiveTool);
+  const setConfigActiveTool = useAppStore((state) => state.setConfigActiveTool);
 
   const codePath = useSettingsStore((state) => state.codePath);
   const desktopPath = useSettingsStore((state) => state.desktopPath);
@@ -95,7 +96,7 @@ export function JsonEditorPane() {
   }, []);
 
   function handleTabChange(tool: ToolTarget) {
-    setActiveTool(tool);
+    setConfigActiveTool(tool);
     setPosition({ line: 1, column: 1 });
     setErrorCount(0);
     setWarningCount(0);

@@ -60,15 +60,21 @@ describe("Header", () => {
     expect(screen.getByTestId("profile-switcher")).not.toBeNull();
   });
 
-  it("profile indicator div has data-slot='profile-indicator'", () => {
-    const { container } = render(<Header />);
-    expect(
-      container.querySelector("[data-slot='profile-indicator']")
-    ).not.toBeNull();
+  it("renders AI Panel title", () => {
+    render(<Header />);
+    expect(screen.getByText("AI Panel")).not.toBeNull();
   });
 
-  it("renders master-panel title", () => {
-    render(<Header />);
-    expect(screen.getByText("master-panel")).not.toBeNull();
+  it("AI Panel name appears before ProfileSwitcher in DOM order", () => {
+    const { container } = render(<Header />);
+    const header = container.querySelector("header")!;
+    const children = Array.from(header.children);
+    const nameIdx = children.findIndex((el) => el.textContent?.includes("AI Panel"));
+    const switcherIdx = children.findIndex(
+      (el) => el.getAttribute("data-testid") === "profile-switcher"
+    );
+    expect(nameIdx).toBeGreaterThanOrEqual(0);
+    expect(switcherIdx).toBeGreaterThanOrEqual(0);
+    expect(nameIdx).toBeLessThan(switcherIdx);
   });
 });
