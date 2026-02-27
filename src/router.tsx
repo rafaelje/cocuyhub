@@ -6,6 +6,7 @@ import { ProfilesView } from "./features/profiles/components/ProfilesView";
 import { SnapshotsView } from "./features/snapshots/components/SnapshotsView";
 import { SettingsView } from "./features/settings/components/SettingsView";
 import { ClaudeMetricsView } from "./features/metrics/components/ClaudeMetricsView";
+import { SkillsView } from "./features/skills/components/SkillsView";
 
 export const router = createMemoryRouter([
   {
@@ -14,6 +15,7 @@ export const router = createMemoryRouter([
     children: [
       { index: true, element: <Navigate to="/config" replace /> },
       { path: "config", element: <ConfigView /> },
+      { path: "skills", element: <SkillsView /> },
       { path: "editor", element: <EditorView /> },
       { path: "profiles", element: <ProfilesView /> },
       { path: "snapshots", element: <SnapshotsView /> },

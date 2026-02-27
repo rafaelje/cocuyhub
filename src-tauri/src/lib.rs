@@ -97,6 +97,12 @@ pub fn run() {
             // Metrics dashboard
             commands::metrics::metrics_read,
             commands::metrics::metrics_start_watcher,
+            // Skills management
+            commands::skills::skill_list,
+            commands::skills::skill_create,
+            commands::skills::skill_delete,
+            commands::skills::skill_rename,
+            commands::skills::skill_update_frontmatter,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

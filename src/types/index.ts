@@ -88,6 +88,21 @@ export interface SessionBlock {
   limitReached: boolean;
 }
 
+export type SkillLocation = "personal" | "project";
+
+export interface SkillInfo {
+  name: string;
+  slug: string;
+  description: string | null;
+  disableModelInvocation: boolean;
+  userInvocable: boolean;
+  allowedTools: string | null;
+  argumentHint: string | null;
+  location: SkillLocation;
+  projectPath: string | null;
+  bodyPreview: string | null;
+}
+
 export interface MetricsPayload {
   activeSession: SessionBlock | null;
   pastSessions: SessionBlock[];

@@ -4,5 +4,6 @@ pub mod metrics;
 pub mod process;
 pub mod profiles;
 pub mod projects;
+pub mod skills;
 pub mod snapshots;
 pub mod updater;

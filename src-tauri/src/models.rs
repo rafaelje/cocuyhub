@@ -132,6 +132,28 @@ pub struct SessionBlock {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SkillLocation {
+    Personal,
+    Project,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInfo {
+    pub name: String,
+    pub slug: String,
+    pub description: Option<String>,
+    pub disable_model_invocation: bool,
+    pub user_invocable: bool,
+    pub allowed_tools: Option<String>,
+    pub argument_hint: Option<String>,
+    pub location: SkillLocation,
+    pub project_path: Option<String>,
+    pub body_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MetricsPayload {
     pub active_session: Option<SessionBlock>,
