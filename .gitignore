@@ -25,6 +25,7 @@ dist-ssr
 
 #AI
 .claude
+.agents
 
 # BMAD
 _bmad
