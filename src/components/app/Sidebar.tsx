@@ -21,7 +21,7 @@ interface NavItemConfig {
 const NAV_ITEMS: NavItemConfig[] = [
   { path: "/config",    label: "Config MCP", icon: Settings2,         shortcutNum: 1 },
   { path: "/editor",   label: "Editor",     icon: Code2,             shortcutNum: 2 },
-  { path: "/profiles", label: "Profiles",   icon: User,              shortcutNum: 3 },
+  // { path: "/profiles", label: "Profiles",   icon: User,              shortcutNum: 3 },
   { path: "/snapshots",label: "Snapshots",      icon: History,           shortcutNum: 4 },
   { path: "/settings", label: "Settings",       icon: SlidersHorizontal, shortcutNum: 5 },
   { path: "/metrics",  label: "Claude Metrics", icon: BarChart2,         shortcutNum: 6 },

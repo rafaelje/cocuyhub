@@ -1,15 +1,15 @@
-import { useCallback, useRef } from "react";
-import { useProfileSwitcherShortcut } from "@/hooks/useKeyboardShortcuts";
-import {
-  ProfileSwitcher,
-  type ProfileSwitcherHandle,
-} from "@/features/profiles/components/ProfileSwitcher";
+// import { useCallback, useRef } from "react";
+// import { useProfileSwitcherShortcut } from "@/hooks/useKeyboardShortcuts";
+// import {
+//   ProfileSwitcher,
+//   type ProfileSwitcherHandle,
+// } from "@/features/profiles/components/ProfileSwitcher";
 import { HealthIndicator } from "./HealthIndicator";
 
 export function Header() {
-  const switcherRef = useRef<ProfileSwitcherHandle>(null);
-  const handleOpen = useCallback(() => switcherRef.current?.open(), []);
-  useProfileSwitcherShortcut(handleOpen);
+  // const switcherRef = useRef<ProfileSwitcherHandle>(null);
+  // const handleOpen = useCallback(() => switcherRef.current?.open(), []);
+  // useProfileSwitcherShortcut(handleOpen);
 
   return (
     <header
@@ -20,7 +20,7 @@ export function Header() {
         AI Panel
       </span>
       <div className="flex-1" />
-      <ProfileSwitcher ref={switcherRef} />
+      {/* <ProfileSwitcher ref={switcherRef} /> */}
       <HealthIndicator />
     </header>
   );
