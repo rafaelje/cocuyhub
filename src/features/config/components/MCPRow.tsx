@@ -199,7 +199,7 @@ export function MCPRow({ name, config, tool, enabled, onToggle, onDelete, onCopy
             aria-label={`Copy ${name} to Global`}
             className="ml-1 p-1 text-zinc-500 hover:text-zinc-300 transition-colors rounded"
           >
-            ⇢
+            ⇡
           </button>
         )}
         {onCopyToDesktop && (
