@@ -96,3 +96,49 @@ pub struct SnapshotCreatedEvent {
     pub tool: ToolTarget,
     pub snapshot_id: String,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelStats {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub entries_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanLimits {
+    pub message_limit: u64,
+    pub token_limit: u64,
+    pub cost_limit_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionBlock {
+    pub start_time: String,
+    pub end_time: String,
+    pub is_active: bool,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub total_tokens: u64,
+    pub message_count: u64,
+    pub model_stats: HashMap<String, ModelStats>,
+    pub limit_reached: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetricsPayload {
+    pub active_session: Option<SessionBlock>,
+    pub past_sessions: Vec<SessionBlock>,
+    pub global_model_stats: HashMap<String, ModelStats>,
+    pub projects_path: String,
+    pub detected_plan: String,
+    pub plan_confidence: String,
+    pub plan_limits: PlanLimits,
+}

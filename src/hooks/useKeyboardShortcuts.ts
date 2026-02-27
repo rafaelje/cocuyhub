@@ -8,6 +8,7 @@ const ROUTE_MAP: Record<string, string> = {
   "3": "/profiles",
   "4": "/snapshots",
   "5": "/settings",
+  "6": "/metrics",
   "e": "/editor",
 };
 

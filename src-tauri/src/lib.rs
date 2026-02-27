@@ -18,6 +18,8 @@ pub struct AppState {
     pub watcher_active: Mutex<bool>,
     /// Guard to prevent spawning multiple polling threads
     pub polling_active: Mutex<bool>,
+    /// Guard to prevent spawning multiple metrics watcher threads
+    pub metrics_watcher_active: Mutex<bool>,
 }
 
 impl AppState {
@@ -31,6 +33,7 @@ impl AppState {
             process_status: Arc::new(Mutex::new(process_status)),
             watcher_active: Mutex::new(false),
             polling_active: Mutex::new(false),
+            metrics_watcher_active: Mutex::new(false),
         }
     }
 }
@@ -91,6 +94,9 @@ pub fn run() {
             commands::snapshots::snapshot_list,
             commands::snapshots::snapshot_restore,
             commands::snapshots::snapshot_delete,
+            // Metrics dashboard
+            commands::metrics::metrics_read,
+            commands::metrics::metrics_start_watcher,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

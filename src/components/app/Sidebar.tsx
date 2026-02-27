@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Settings2, Code2, User, History, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { Settings2, Code2, User, History, SlidersHorizontal, BarChart2, type LucideIcon } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -22,8 +22,9 @@ const NAV_ITEMS: NavItemConfig[] = [
   { path: "/config",    label: "Config MCP", icon: Settings2,         shortcutNum: 1 },
   { path: "/editor",   label: "Editor",     icon: Code2,             shortcutNum: 2 },
   { path: "/profiles", label: "Profiles",   icon: User,              shortcutNum: 3 },
-  { path: "/snapshots",label: "Snapshots",  icon: History,           shortcutNum: 4 },
-  { path: "/settings", label: "Settings",   icon: SlidersHorizontal, shortcutNum: 5 },
+  { path: "/snapshots",label: "Snapshots",      icon: History,           shortcutNum: 4 },
+  { path: "/settings", label: "Settings",       icon: SlidersHorizontal, shortcutNum: 5 },
+  { path: "/metrics",  label: "Claude Metrics", icon: BarChart2,         shortcutNum: 6 },
 ];
 
 interface NavItemProps {

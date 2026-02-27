@@ -59,3 +59,41 @@ export interface ParsedMcp {
   args: string[];
   env?: Record<string, string>;
 }
+
+export interface ModelStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  entriesCount: number;
+}
+
+export interface PlanLimits {
+  messageLimit: number;
+  tokenLimit: number;
+  costLimitUsd: number;
+}
+
+export interface SessionBlock {
+  startTime: string;
+  endTime: string;
+  isActive: boolean;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  totalTokens: number;
+  messageCount: number;
+  modelStats: Record<string, ModelStats>;
+  limitReached: boolean;
+}
+
+export interface MetricsPayload {
+  activeSession: SessionBlock | null;
+  pastSessions: SessionBlock[];
+  globalModelStats: Record<string, ModelStats>;
+  projectsPath: string;
+  detectedPlan: "pro" | "max5" | "max20" | "custom";
+  planConfidence: "confirmed" | "inferred" | "unknown";
+  planLimits: PlanLimits;
+}
