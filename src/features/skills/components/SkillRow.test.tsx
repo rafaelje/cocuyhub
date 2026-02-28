@@ -22,6 +22,7 @@ const baseSkill: SkillInfo = {
   location: "personal",
   projectPath: null,
   bodyPreview: null,
+  disabled: false,
 };
 
 const defaultProps = {

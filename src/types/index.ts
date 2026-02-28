@@ -90,6 +90,13 @@ export interface SessionBlock {
 
 export type SkillLocation = "personal" | "project";
 
+export interface SkillTreeNode {
+  name: string;
+  path: string;
+  nodeType: "file" | "dir";
+  children: SkillTreeNode[];
+}
+
 export interface SkillInfo {
   name: string;
   slug: string;
@@ -101,6 +108,7 @@ export interface SkillInfo {
   location: SkillLocation;
   projectPath: string | null;
   bodyPreview: string | null;
+  disabled: boolean;
 }
 
 export interface MetricsPayload {

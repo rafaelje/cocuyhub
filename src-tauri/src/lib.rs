@@ -97,12 +97,24 @@ pub fn run() {
             // Metrics dashboard
             commands::metrics::metrics_read,
             commands::metrics::metrics_start_watcher,
-            // Skills management
+            // Skills management — base
             commands::skills::skill_list,
             commands::skills::skill_create,
             commands::skills::skill_delete,
             commands::skills::skill_rename,
             commands::skills::skill_update_frontmatter,
+            // Skills tree
+            commands::skills::skill_tree_read,
+            // Skills workspace CRUD (Stories 2.2 + 2.3)
+            commands::skills::skill_node_create,
+            commands::skills::skill_node_rename,
+            commands::skills::skill_node_delete,
+            // Skills file editor (Story 2.4)
+            commands::skills::skill_file_read,
+            commands::skills::skill_file_write,
+            // Skills export/import (Epics 4 + 5)
+            commands::skills::skill_export,
+            commands::skills::skill_import,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Download } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -22,6 +23,10 @@ interface SkillRowProps {
   onToggleFrontmatter: (slug: string, key: string, value: string) => Promise<void>;
   onDescriptionChange: (slug: string, description: string) => Promise<void>;
   existingNames: string[];
+  onSelect?: (skill: SkillInfo) => void;
+  isSelected?: boolean;
+  onToggleActive?: (skill: SkillInfo, active: boolean) => Promise<void>;
+  onExport?: (skill: SkillInfo) => void;
 }
 
 export function SkillRow({
@@ -31,11 +36,17 @@ export function SkillRow({
   onToggleFrontmatter,
   onDescriptionChange,
   existingNames,
+  onSelect,
+  isSelected = false,
+  onToggleActive,
+  onExport,
 }: SkillRowProps) {
   // Model Invocation toggle: inverted logic — checked=enabled means disable-model-invocation is false
   const [optimisticModelInvocation, setOptimisticModelInvocation] = useState(!skill.disableModelInvocation);
   // User Invocable toggle: direct logic
   const [optimisticUserInvocable, setOptimisticUserInvocable] = useState(skill.userInvocable);
+  // Active toggle: inverted of disabled
+  const [optimisticActive, setOptimisticActive] = useState(!skill.disabled);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(skill.slug);
@@ -51,6 +62,10 @@ export function SkillRow({
   useEffect(() => {
     setOptimisticUserInvocable(skill.userInvocable);
   }, [skill.userInvocable]);
+
+  useEffect(() => {
+    setOptimisticActive(!skill.disabled);
+  }, [skill.disabled]);
 
   useEffect(() => {
     setDraftName(skill.slug);
@@ -144,6 +159,17 @@ export function SkillRow({
     }
   };
 
+  const handleActiveToggle = async (checked: boolean) => {
+    if (!onToggleActive) return;
+    const prev = optimisticActive;
+    setOptimisticActive(checked);
+    try {
+      await onToggleActive(skill, checked);
+    } catch {
+      setOptimisticActive(prev);
+    }
+  };
+
   const handleConfirmDelete = async () => {
     setDialogOpen(false);
     await onDelete(skill.slug);
@@ -159,7 +185,13 @@ export function SkillRow({
   return (
     <div
       role="article"
-      className="flex flex-col px-4 py-3 border-b border-zinc-800 bg-zinc-900 hover:bg-zinc-800 transition-colors"
+      onClick={() => onSelect?.(skill)}
+      className={cn(
+        "flex flex-col px-4 py-3 border-b border-zinc-800 transition-colors",
+        isSelected
+          ? "bg-zinc-700 border-l-2 border-l-emerald-500"
+          : "bg-zinc-900 hover:bg-zinc-800 cursor-pointer"
+      )}
     >
       {/* Main row */}
       <div className="flex items-center gap-3">
@@ -168,6 +200,7 @@ export function SkillRow({
             className="flex-1 font-mono text-sm text-zinc-100 bg-transparent border-b border-zinc-500 outline-none truncate"
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === "Enter") { e.preventDefault(); handleRenameCommit(); }
               if (e.key === "Escape") handleRenameCancel();
@@ -187,7 +220,18 @@ export function SkillRow({
         <Badge variant="secondary" className="shrink-0">
           {locationLabel}
         </Badge>
-        <div className="flex items-center gap-1.5">
+        {onToggleActive && (
+          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <span className="text-[10px] text-zinc-500">Active</span>
+            <Switch
+              size="sm"
+              checked={optimisticActive}
+              onCheckedChange={handleActiveToggle}
+              aria-label={`Active for ${skill.slug}`}
+            />
+          </div>
+        )}
+        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <span className="text-[10px] text-zinc-500">Model</span>
           <Switch
             size="sm"
@@ -196,7 +240,7 @@ export function SkillRow({
             aria-label={`Model Invocation for ${skill.slug}`}
           />
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <span className="text-[10px] text-zinc-500">User</span>
           <Switch
             size="sm"
@@ -205,8 +249,18 @@ export function SkillRow({
             aria-label={`User Invocable for ${skill.slug}`}
           />
         </div>
+        {onExport && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onExport(skill); }}
+            aria-label={`Export ${skill.slug}`}
+            className="p-1 text-zinc-500 hover:text-emerald-400 transition-colors rounded"
+            title="Export skill"
+          >
+            <Download size={13} />
+          </button>
+        )}
         <button
-          onClick={() => setDialogOpen(true)}
+          onClick={(e) => { e.stopPropagation(); setDialogOpen(true); }}
           aria-label={`Remove ${skill.slug}`}
           className="ml-1 p-1 text-zinc-500 hover:text-red-400 transition-colors rounded"
         >
@@ -242,6 +296,7 @@ export function SkillRow({
           className="mt-0.5 w-full text-xs text-zinc-300 bg-transparent border-b border-zinc-500 outline-none"
           value={draftDescription}
           onChange={(e) => setDraftDescription(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
             if (e.key === "Enter") { e.preventDefault(); handleDescriptionCommit(); }
             if (e.key === "Escape") handleDescriptionCancel();

@@ -151,6 +151,16 @@ pub struct SkillInfo {
     pub location: SkillLocation,
     pub project_path: Option<String>,
     pub body_preview: Option<String>,
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillTreeNode {
+    pub name: String,
+    pub path: String,
+    pub node_type: String,
+    pub children: Vec<SkillTreeNode>,
 }
 
 #[derive(Debug, Clone, Serialize)]

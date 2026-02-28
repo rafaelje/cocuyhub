@@ -34,6 +34,7 @@ const sampleSkill: SkillInfo = {
   location: "personal",
   projectPath: null,
   bodyPreview: null,
+  disabled: false,
 };
 
 function defaultSkillState(overrides: Partial<ReturnType<typeof useSkillStore>> = {}) {
@@ -42,8 +43,26 @@ function defaultSkillState(overrides: Partial<ReturnType<typeof useSkillStore>> 
     isLoading: false,
     error: null,
     lastProjectPaths: [],
+    selectedSkill: null,
+    skillTree: null,
+    isTreeLoading: false,
+    treeError: null,
+    selectedFilePath: null,
+    fileContent: null,
+    savedContent: null,
+    isFileLoading: false,
+    fileError: null,
+    isFileDirty: false,
+    isSavingFile: false,
     loadSkills: vi.fn(),
     reloadSkills: vi.fn(),
+    selectSkill: vi.fn(),
+    loadSkillTree: vi.fn(),
+    reloadTree: vi.fn(),
+    selectFile: vi.fn(),
+    openFile: vi.fn(),
+    saveFile: vi.fn(),
+    setFileContent: vi.fn(),
     ...overrides,
   } as unknown as ReturnType<typeof useSkillStore>;
 }
@@ -60,9 +79,14 @@ describe("SkillsView", () => {
     expect(screen.getByText("Personal")).not.toBeNull();
   });
 
-  it("shows empty state when no skills", () => {
+  it("shows empty state when no skills (personal section expanded by default)", () => {
     render(<SkillsView />);
     expect(screen.getByText("No skills found. Create one to get started.")).not.toBeNull();
+  });
+
+  it("shows right panel empty state when no skill selected", () => {
+    render(<SkillsView />);
+    expect(screen.getByText("Select a skill to browse its workspace files")).not.toBeNull();
   });
 
   it("shows loading skeleton when isLoading", () => {

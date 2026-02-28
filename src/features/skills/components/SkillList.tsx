@@ -10,9 +10,13 @@ interface SkillListProps {
   projectPath?: string;
   isLoading: boolean;
   error: string | null;
+  selectedSkillKey?: string | null;
+  onSelectSkill?: (skill: SkillInfo) => void;
+  onToggleActive?: (skill: SkillInfo, active: boolean) => Promise<void>;
+  onExport?: (skill: SkillInfo) => void;
 }
 
-export function SkillList({ skills, location, projectPath, isLoading, error }: SkillListProps) {
+export function SkillList({ skills, location, projectPath, isLoading, error, selectedSkillKey, onSelectSkill, onToggleActive, onExport }: SkillListProps) {
   const filtered = skills
     .filter((s) => {
       if (s.location !== location) return false;
@@ -109,17 +113,24 @@ export function SkillList({ skills, location, projectPath, isLoading, error }: S
 
   return (
     <div>
-      {filtered.map((skill) => (
-        <SkillRow
-          key={`${skill.location}:${skill.projectPath ?? ""}:${skill.slug}`}
-          skill={skill}
-          onDelete={handleDelete}
-          onRename={handleRename}
-          onToggleFrontmatter={handleToggleFrontmatter}
-          onDescriptionChange={handleDescriptionChange}
-          existingNames={filtered.map((s) => s.slug)}
-        />
-      ))}
+      {filtered.map((skill) => {
+        const key = `${skill.location}:${skill.projectPath ?? ""}:${skill.slug}`;
+        return (
+          <SkillRow
+            key={key}
+            skill={skill}
+            onDelete={handleDelete}
+            onRename={handleRename}
+            onToggleFrontmatter={handleToggleFrontmatter}
+            onDescriptionChange={handleDescriptionChange}
+            existingNames={filtered.map((s) => s.slug)}
+            isSelected={selectedSkillKey === key}
+            onSelect={onSelectSkill}
+            onToggleActive={onToggleActive}
+            onExport={onExport}
+          />
+        );
+      })}
     </div>
   );
 }
