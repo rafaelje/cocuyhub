@@ -11,21 +11,22 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import type { SkillLocation } from "@/types";
+import type { CopyDestination } from "./destinations";
+import { encodeDestination, decodeDestination } from "./destinations";
 
 const SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 interface SkillCreateFormProps {
-  projectPaths: string[];
-  hasDesktopSkills: boolean;
+  availableDestinations: CopyDestination[];
 }
 
-export function SkillCreateForm({ projectPaths, hasDesktopSkills }: SkillCreateFormProps) {
+export function SkillCreateForm({ availableDestinations }: SkillCreateFormProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [location, setLocation] = useState<SkillLocation>("personal");
-  const [projectPath, setProjectPath] = useState<string>(projectPaths[0] ?? "");
+  const [projectPath, setProjectPath] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -44,7 +45,7 @@ export function SkillCreateForm({ projectPaths, hasDesktopSkills }: SkillCreateF
     setDescription("");
     setInstructions("");
     setLocation("personal");
-    setProjectPath(projectPaths[0] ?? "");
+    setProjectPath("");
     setOpen(true);
   };
 
@@ -71,27 +72,15 @@ export function SkillCreateForm({ projectPaths, hasDesktopSkills }: SkillCreateF
   };
 
   // Encode location + projectPath into a single select value
-  const locationValue =
-    location === "personal"
-      ? "personal:"
-      : location === "desktop_skills"
-        ? "desktop_skills:"
-        : `project:${projectPath}`;
+  const locationValue = encodeDestination({ label: "", location, projectPath });
 
   const handleLocationChange = (val: string) => {
-    const [loc, ...rest] = val.split(":");
-    const pp = rest.join(":");
-    if (loc === "personal") {
-      setLocation("personal");
-    } else if (loc === "desktop_skills") {
-      setLocation("desktop_skills");
-    } else {
-      setLocation("project");
-      setProjectPath(pp);
-    }
+    const decoded = decodeDestination(val);
+    setLocation(decoded.location as SkillLocation);
+    setProjectPath(decoded.projectPath ?? "");
   };
 
-  const hasMultipleLocations = projectPaths.length > 0 || hasDesktopSkills;
+  const hasMultipleLocations = availableDestinations.length > 1;
 
   return (
     <div className="border-b border-zinc-800 shrink-0">
@@ -170,13 +159,9 @@ export function SkillCreateForm({ projectPaths, hasDesktopSkills }: SkillCreateF
                   className="w-full px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 rounded-md text-zinc-300 outline-none focus:border-zinc-500"
                   aria-label="Skill location"
                 >
-                  <option value="personal:">Claude Code Skills</option>
-                  {hasDesktopSkills && (
-                    <option value="desktop_skills:">Claude Desktop Skills</option>
-                  )}
-                  {projectPaths.map((pp) => (
-                    <option key={pp} value={`project:${pp}`}>
-                      Project: {pp.split("/").slice(-2).join("/")}
+                  {availableDestinations.map((dest) => (
+                    <option key={encodeDestination(dest)} value={encodeDestination(dest)}>
+                      {dest.label}
                     </option>
                   ))}
                 </select>

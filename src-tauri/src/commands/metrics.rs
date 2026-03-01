@@ -82,6 +82,7 @@ fn metrics_read_blocking() -> Result<MetricsPayload, CommandError> {
         active_session: None,
         past_sessions: vec![],
         global_model_stats: HashMap::new(),
+        tool_usage: HashMap::new(),
         projects_path: String::new(),
         detected_plan: "custom".to_string(),
         plan_confidence: "unknown".to_string(),
@@ -127,6 +128,7 @@ fn metrics_read_blocking() -> Result<MetricsPayload, CommandError> {
     let mut seen: HashSet<String> = HashSet::new();
     // (ts, entry_value, input, output, cache_create, cache_read, is_limit)
     let mut entries: Vec<(DateTime<Utc>, Value, u64, u64, u64, u64, bool)> = Vec::new();
+    let mut tool_usage: HashMap<String, u64> = HashMap::new();
 
     for file in &jsonl_files {
         let content = match std::fs::read_to_string(file) {
@@ -222,6 +224,19 @@ fn metrics_read_blocking() -> Result<MetricsPayload, CommandError> {
                 .to_lowercase();
             let is_limit = (entry_type == "system" && content_str.contains("limit"))
                 || (entry_type == "user" && tool_result_str.contains("limit reached"));
+
+            // Extract tool usage from assistant messages
+            if is_assistant {
+                if let Some(content_arr) = entry["message"]["content"].as_array() {
+                    for block in content_arr {
+                        if block["type"].as_str() == Some("tool_use") {
+                            if let Some(tool_name) = block["name"].as_str() {
+                                *tool_usage.entry(tool_name.to_string()).or_insert(0) += 1;
+                            }
+                        }
+                    }
+                }
+            }
 
             entries.push((ts, entry, input, output, cache_create, cache_read, is_limit));
         }
@@ -388,6 +403,7 @@ fn metrics_read_blocking() -> Result<MetricsPayload, CommandError> {
         active_session,
         past_sessions,
         global_model_stats,
+        tool_usage,
         projects_path: projects_path.to_string_lossy().to_string(),
         detected_plan: detected_plan.clone(),
         plan_confidence,
@@ -550,5 +566,84 @@ mod tests {
         // This is a smoke test for the plan_limits fallback
         let limits = plan_limits("custom");
         assert_eq!(limits.message_limit, 250);
+    }
+
+    #[test]
+    fn test_tool_usage_extraction_from_content_blocks() {
+        // Simulate the tool_usage extraction logic used in the parsing loop
+        let entry = serde_json::json!({
+            "message": {
+                "content": [
+                    { "type": "text", "text": "Let me read that file." },
+                    { "type": "tool_use", "id": "1", "name": "Read", "input": {} },
+                    { "type": "tool_use", "id": "2", "name": "Bash", "input": {} },
+                    { "type": "tool_use", "id": "3", "name": "Read", "input": {} },
+                    { "type": "tool_use", "id": "4", "name": "mcp__mysql__query", "input": {} }
+                ]
+            }
+        });
+
+        let mut tool_usage: HashMap<String, u64> = HashMap::new();
+        if let Some(content_arr) = entry["message"]["content"].as_array() {
+            for block in content_arr {
+                if block["type"].as_str() == Some("tool_use") {
+                    if let Some(tool_name) = block["name"].as_str() {
+                        *tool_usage.entry(tool_name.to_string()).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        assert_eq!(tool_usage.get("Read"), Some(&2));
+        assert_eq!(tool_usage.get("Bash"), Some(&1));
+        assert_eq!(tool_usage.get("mcp__mysql__query"), Some(&1));
+        assert_eq!(tool_usage.len(), 3);
+    }
+
+    #[test]
+    fn test_tool_usage_no_panic_on_missing_content() {
+        // Entries without content array should not cause any issues
+        let entry = serde_json::json!({
+            "message": { "role": "assistant" }
+        });
+
+        let mut tool_usage: HashMap<String, u64> = HashMap::new();
+        if let Some(content_arr) = entry["message"]["content"].as_array() {
+            for block in content_arr {
+                if block["type"].as_str() == Some("tool_use") {
+                    if let Some(tool_name) = block["name"].as_str() {
+                        *tool_usage.entry(tool_name.to_string()).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        assert!(tool_usage.is_empty());
+    }
+
+    #[test]
+    fn test_tool_usage_skips_blocks_without_name() {
+        let entry = serde_json::json!({
+            "message": {
+                "content": [
+                    { "type": "tool_use", "id": "1" },
+                    { "type": "tool_use", "id": "2", "name": "Edit", "input": {} }
+                ]
+            }
+        });
+
+        let mut tool_usage: HashMap<String, u64> = HashMap::new();
+        if let Some(content_arr) = entry["message"]["content"].as_array() {
+            for block in content_arr {
+                if block["type"].as_str() == Some("tool_use") {
+                    if let Some(tool_name) = block["name"].as_str() {
+                        *tool_usage.entry(tool_name.to_string()).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        assert_eq!(tool_usage.get("Edit"), Some(&1));
+        assert_eq!(tool_usage.len(), 1);
     }
 }

@@ -30,6 +30,10 @@ describe("useSkillStore", () => {
       fileError: null,
       isFileDirty: false,
       isSavingFile: false,
+      searchQuery: "",
+      searchResults: [],
+      isSearching: false,
+      searchError: null,
     });
   });
 
@@ -199,5 +203,92 @@ describe("useSkillStore", () => {
     useSkillStore.setState({ selectedSkill: null });
     await useSkillStore.getState().reloadTree();
     expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  // ── Search tests ──
+
+  it("searchSkills calls skill_search and sets results", async () => {
+    const mockResults = [
+      { skill: { slug: "a", name: "a" }, matches: [{ field: "name", context: "a" }], score: 100 },
+    ];
+    mockInvoke.mockResolvedValue(mockResults as never);
+
+    await useSkillStore.getState().searchSkills("test", ["/project"]);
+
+    expect(mockInvoke).toHaveBeenCalledWith("skill_search", { query: "test", projectPaths: ["/project"] });
+    expect(useSkillStore.getState().searchResults).toEqual(mockResults);
+    expect(useSkillStore.getState().isSearching).toBe(false);
+    expect(useSkillStore.getState().searchError).toBeNull();
+  });
+
+  it("searchSkills sets searchQuery", async () => {
+    mockInvoke.mockResolvedValue([] as never);
+    await useSkillStore.getState().searchSkills("my query", []);
+    expect(useSkillStore.getState().searchQuery).toBe("my query");
+  });
+
+  it("searchSkills sets isSearching while in flight", () => {
+    // Don't await — check intermediate state
+    mockInvoke.mockImplementation(() => new Promise(() => {})); // never resolves
+    useSkillStore.getState().searchSkills("test", []);
+    expect(useSkillStore.getState().isSearching).toBe(true);
+  });
+
+  it("searchSkills sets searchError on failure", async () => {
+    mockInvoke.mockRejectedValue({ message: "search failed" } as never);
+
+    await useSkillStore.getState().searchSkills("test", []);
+
+    expect(useSkillStore.getState().searchError).toBe("search failed");
+    expect(useSkillStore.getState().isSearching).toBe(false);
+    expect(useSkillStore.getState().searchResults).toEqual([]);
+  });
+
+  it("searchSkills uses fallback error message", async () => {
+    mockInvoke.mockRejectedValue({} as never);
+
+    await useSkillStore.getState().searchSkills("test", []);
+
+    expect(useSkillStore.getState().searchError).toBe("Search failed");
+  });
+
+  it("clearSearch resets all search state", async () => {
+    // First set some search state
+    mockInvoke.mockResolvedValue([{ skill: { slug: "a" }, matches: [], score: 10 }] as never);
+    await useSkillStore.getState().searchSkills("query", []);
+
+    // Now clear
+    useSkillStore.getState().clearSearch();
+
+    expect(useSkillStore.getState().searchQuery).toBe("");
+    expect(useSkillStore.getState().searchResults).toEqual([]);
+    expect(useSkillStore.getState().isSearching).toBe(false);
+    expect(useSkillStore.getState().searchError).toBeNull();
+  });
+
+  it("searchSkills discards stale response when clearSearch is called", async () => {
+    let resolveSearch: (v: unknown) => void;
+    mockInvoke.mockImplementation(() => new Promise((r) => { resolveSearch = r; }));
+
+    // Start a search
+    const searchPromise = useSkillStore.getState().searchSkills("old", []);
+
+    // Clear before it resolves (increments the seq counter)
+    useSkillStore.getState().clearSearch();
+
+    // Resolve the old search
+    resolveSearch!([{ skill: { slug: "stale" }, matches: [], score: 10 }]);
+    await searchPromise;
+
+    // State should still be cleared — stale result was discarded
+    expect(useSkillStore.getState().searchResults).toEqual([]);
+    expect(useSkillStore.getState().searchQuery).toBe("");
+  });
+
+  it("initial search state is clean", () => {
+    expect(useSkillStore.getState().searchQuery).toBe("");
+    expect(useSkillStore.getState().searchResults).toEqual([]);
+    expect(useSkillStore.getState().isSearching).toBe(false);
+    expect(useSkillStore.getState().searchError).toBeNull();
   });
 });

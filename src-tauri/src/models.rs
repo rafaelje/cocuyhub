@@ -170,10 +170,28 @@ pub struct SkillTreeNode {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SearchMatch {
+    pub field: String,              // "name"|"description"|"body"|"filename"|"content"
+    pub file_path: Option<String>,
+    pub context: String,            // snippet ~80 chars
+    pub line: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSearchResult {
+    pub skill: SkillInfo,
+    pub matches: Vec<SearchMatch>,
+    pub score: u32,                 // name=100, desc=50, body=30, filename=20, content=10
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MetricsPayload {
     pub active_session: Option<SessionBlock>,
     pub past_sessions: Vec<SessionBlock>,
     pub global_model_stats: HashMap<String, ModelStats>,
+    pub tool_usage: HashMap<String, u64>,
     pub projects_path: String,
     pub detected_plan: String,
     pub plan_confidence: String,

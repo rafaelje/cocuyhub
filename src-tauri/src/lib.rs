@@ -44,6 +44,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build()) // Story 7.2
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             // Story 1.3 - Path detection & settings
@@ -117,6 +118,10 @@ pub fn run() {
             commands::skills::skill_import,
             // Skills copy between locations
             commands::skills::skill_copy,
+            // Skills search
+            commands::skills::skill_search,
+            // Skills directories listing
+            commands::skills::skill_list_directories,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

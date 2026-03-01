@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMetricsStore } from "@/stores/useMetricsStore";
+import { ToolUsageSection } from "./ToolUsageSection";
 
 type PlanKey = "pro" | "max5" | "max20";
 
@@ -315,6 +316,10 @@ export function ClaudeMetricsView() {
         <div className="border border-zinc-700 rounded p-4 mb-6 text-center">
           <p className="text-xs text-zinc-500">No active session · Start using Claude Code to see live metrics</p>
         </div>
+      )}
+
+      {Object.keys(payload.toolUsage).length > 0 && (
+        <ToolUsageSection toolUsage={payload.toolUsage} />
       )}
 
     </div>

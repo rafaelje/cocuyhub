@@ -34,14 +34,10 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { SkillInfo, SkillLocation } from "@/types";
+import type { CopyDestination } from "./destinations";
+export type { CopyDestination };
 
 const SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-export interface CopyDestination {
-  label: string;
-  location: SkillLocation;
-  projectPath: string | null;
-}
 
 interface SkillRowProps {
   skill: SkillInfo;

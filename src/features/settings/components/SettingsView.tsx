@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useConfigStore } from "@/stores/useConfigStore";
 import { invokeCommand } from "@/lib/ipc";
-import type { AppSettings } from "@/types";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import type { AppSettings, SkillDirectory } from "@/types";
 
 interface PathFieldProps {
   label: string;
@@ -73,12 +74,21 @@ export function SettingsView() {
   const { codePath, desktopPath, isDetecting, detectPaths, setCodePath, setDesktopPath } =
     useSettingsStore();
   const { loadConfigs, setupFileWatcher } = useConfigStore();
+  const projects = useConfigStore((s) => s.codeConfig?.projects);
+  const projectPaths = useMemo(() => Object.keys(projects ?? {}), [projects]);
 
   const [customCodePath, setCustomCodePath] = useState("");
   const [customDesktopPath, setCustomDesktopPath] = useState("");
   const [isSavingCode, setIsSavingCode] = useState(false);
   const [isSavingDesktop, setIsSavingDesktop] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [skillDirs, setSkillDirs] = useState<SkillDirectory[]>([]);
+
+  useEffect(() => {
+    invokeCommand<SkillDirectory[]>("skill_list_directories", { projectPaths })
+      .then(setSkillDirs)
+      .catch(() => {});
+  }, [projectPaths]);
 
   const reloadAfterPathChange = async () => {
     await loadConfigs();
@@ -184,6 +194,37 @@ export function SettingsView() {
           <span className="text-zinc-500">Detect Paths</span> to re-run detection.
         </p>
       </section>
+
+      {skillDirs.length > 0 && (
+        <section className="mb-8">
+          <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-4">
+            Skill Directories
+          </h2>
+          <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4 flex flex-col gap-3">
+            {skillDirs.map((dir) => (
+              <div key={dir.path} className="flex items-center gap-2">
+                <div
+                  className={`w-2 h-2 rounded-full shrink-0 ${dir.exists ? "bg-emerald-500" : "bg-zinc-600"}`}
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-zinc-300">{dir.label}</span>
+                  <code className="block text-xs text-zinc-500 font-mono truncate">
+                    {dir.path}
+                  </code>
+                </div>
+                {dir.exists && (
+                  <button
+                    onClick={() => revealItemInDir(dir.path)}
+                    className="shrink-0 text-xs px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-300 border border-zinc-700 transition-colors"
+                  >
+                    Open
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

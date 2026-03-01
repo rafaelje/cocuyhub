@@ -111,10 +111,30 @@ export interface SkillInfo {
   disabled: boolean;
 }
 
+export interface SearchMatch {
+  field: "name" | "description" | "body" | "filename" | "content";
+  filePath: string | null;
+  context: string;
+  line: number | null;
+}
+
+export interface SkillSearchResult {
+  skill: SkillInfo;
+  matches: SearchMatch[];
+  score: number;
+}
+
+export interface SkillDirectory {
+  label: string;
+  path: string;
+  exists: boolean;
+}
+
 export interface MetricsPayload {
   activeSession: SessionBlock | null;
   pastSessions: SessionBlock[];
   globalModelStats: Record<string, ModelStats>;
+  toolUsage: Record<string, number>;
   projectsPath: string;
   detectedPlan: "pro" | "max5" | "max20" | "custom";
   planConfidence: "confirmed" | "inferred" | "unknown";

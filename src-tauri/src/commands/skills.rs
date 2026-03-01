@@ -1,5 +1,6 @@
 use crate::errors::CommandError;
-use crate::models::{SkillInfo, SkillLocation, SkillTreeNode};
+use crate::models::{SearchMatch, SkillInfo, SkillLocation, SkillSearchResult, SkillTreeNode};
+use serde::Serialize;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -360,11 +361,16 @@ pub(crate) fn discover_skills(
             );
         }
 
-        // Claude Desktop "Examples" — each category subfolder has a skills/ dir
+        // Claude Desktop "Examples" — each category subfolder has a skills/ dir.
+        // partner-built has an extra vendor level: partner-built/<vendor>/skills/
         if let Some(examples_base) = find_desktop_examples_base(&home) {
             if let Ok(categories) = std::fs::read_dir(&examples_base) {
                 for cat_entry in categories.flatten() {
-                    let cat_skills_dir = cat_entry.path().join("skills");
+                    let cat_path = cat_entry.path();
+                    if !cat_path.is_dir() {
+                        continue;
+                    }
+                    let cat_skills_dir = cat_path.join("skills");
                     if cat_skills_dir.is_dir() {
                         collect_skills_from_dir(
                             &cat_skills_dir,
@@ -372,6 +378,21 @@ pub(crate) fn discover_skills(
                             Some(cat_skills_dir.to_string_lossy().into_owned()),
                             &mut skills,
                         );
+                    } else {
+                        // Try one level deeper (e.g. partner-built/<vendor>/skills/)
+                        if let Ok(sub_entries) = std::fs::read_dir(&cat_path) {
+                            for sub_entry in sub_entries.flatten() {
+                                let sub_skills_dir = sub_entry.path().join("skills");
+                                if sub_skills_dir.is_dir() {
+                                    collect_skills_from_dir(
+                                        &sub_skills_dir,
+                                        SkillLocation::DesktopExamples,
+                                        Some(sub_skills_dir.to_string_lossy().into_owned()),
+                                        &mut skills,
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -471,6 +492,67 @@ pub fn skill_list(project_paths: Vec<String>) -> Result<Vec<SkillInfo>, CommandE
         .collect();
 
     Ok(discover_skills(&personal_dir, &project_dirs))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDirectory {
+    pub label: String,
+    pub path: String,
+    pub exists: bool,
+}
+
+#[tauri::command]
+pub fn skill_list_directories(project_paths: Vec<String>) -> Result<Vec<SkillDirectory>, CommandError> {
+    let home = std::env::var("HOME").map_err(|_| CommandError::ReadError {
+        message: "Could not determine HOME directory".to_string(),
+    })?;
+
+    let mut dirs = Vec::new();
+
+    // Personal skills directory
+    let personal_dir = PathBuf::from(&home).join(".claude").join("skills");
+    dirs.push(SkillDirectory {
+        label: "Claude Code Skills".to_string(),
+        path: personal_dir.to_string_lossy().into_owned(),
+        exists: personal_dir.is_dir(),
+    });
+
+    // Desktop Skills directory
+    if let Some(desktop_skills_dir) = find_desktop_skills_dir(&home) {
+        dirs.push(SkillDirectory {
+            label: "Claude Desktop Skills".to_string(),
+            path: desktop_skills_dir.to_string_lossy().into_owned(),
+            exists: true,
+        });
+    }
+
+    // Desktop Examples directory
+    if let Some(examples_base) = find_desktop_examples_base(&home) {
+        dirs.push(SkillDirectory {
+            label: "Claude Desktop Examples".to_string(),
+            path: examples_base.to_string_lossy().into_owned(),
+            exists: true,
+        });
+    }
+
+    // Project directories
+    for pp in &project_paths {
+        let project_skills_dir = PathBuf::from(pp).join(".claude").join("skills");
+        let short = pp.split('/').collect::<Vec<_>>();
+        let label = if short.len() >= 2 {
+            format!("Project: {}/{}", short[short.len() - 2], short[short.len() - 1])
+        } else {
+            format!("Project: {}", pp)
+        };
+        dirs.push(SkillDirectory {
+            label,
+            path: project_skills_dir.to_string_lossy().into_owned(),
+            exists: project_skills_dir.is_dir(),
+        });
+    }
+
+    Ok(dirs)
 }
 
 #[tauri::command]
@@ -1411,6 +1493,223 @@ pub fn skill_tree_read(
     Ok(read_tree_node(&skill_dir, "/"))
 }
 
+// ── Search helpers ──
+
+/// Returns true if the file appears to be binary (contains null bytes in first 512 bytes).
+fn is_binary_file(path: &Path) -> bool {
+    let Ok(mut f) = std::fs::File::open(path) else { return true };
+    let mut buf = [0u8; 512];
+    let Ok(n) = std::io::Read::read(&mut f, &mut buf) else { return true };
+    buf[..n].contains(&0)
+}
+
+/// Extract a snippet of ~max_len chars centered around match_pos in the line.
+fn extract_snippet(line: &str, match_pos: usize, max_len: usize) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    let total = chars.len();
+    if total <= max_len {
+        return line.to_string();
+    }
+    let half = max_len / 2;
+    let start = if match_pos > half { match_pos - half } else { 0 };
+    let end = (start + max_len).min(total);
+    let start = if end == total && total > max_len { total - max_len } else { start };
+
+    let mut snippet: String = chars[start..end].iter().collect();
+    if start > 0 {
+        snippet = format!("...{}", snippet);
+    }
+    if end < total {
+        snippet = format!("{}...", snippet);
+    }
+    snippet
+}
+
+/// Recursively search files in a skill directory for query matches.
+/// Populates `matches` with filename and content matches.
+fn search_skill_files(
+    dir: &Path,
+    skill_root: &Path,
+    query_lower: &str,
+    matches: &mut Vec<SearchMatch>,
+    max_matches: usize,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if matches.len() >= max_matches {
+            return;
+        }
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let name_str = file_name.to_string_lossy();
+
+        // Skip hidden files/dirs
+        if name_str.starts_with('.') {
+            continue;
+        }
+
+        if path.is_dir() {
+            search_skill_files(&path, skill_root, query_lower, matches, max_matches);
+            continue;
+        }
+
+        // Skip SKILL.md (already searched via frontmatter), binary files, >1MB
+        if name_str == "SKILL.md" {
+            continue;
+        }
+        if let Ok(meta) = path.metadata() {
+            if meta.len() > 1_048_576 {
+                continue;
+            }
+        }
+        if is_binary_file(&path) {
+            continue;
+        }
+
+        let rel_path = path.strip_prefix(skill_root)
+            .map(|p| format!("/{}", p.display()))
+            .unwrap_or_default();
+
+        // Filename match
+        if name_str.to_lowercase().contains(query_lower) && matches.len() < max_matches {
+            matches.push(SearchMatch {
+                field: "filename".to_string(),
+                file_path: Some(rel_path.clone()),
+                context: name_str.to_string(),
+                line: None,
+            });
+        }
+
+        // Content match
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            for (line_idx, line) in content.lines().enumerate() {
+                if matches.len() >= max_matches {
+                    break;
+                }
+                let line_lower = line.to_lowercase();
+                if let Some(pos) = line_lower.find(query_lower) {
+                    matches.push(SearchMatch {
+                        field: "content".to_string(),
+                        file_path: Some(rel_path.clone()),
+                        context: extract_snippet(line.trim(), pos, 80),
+                        line: Some((line_idx + 1) as u32),
+                    });
+                }
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn skill_search(
+    query: String,
+    project_paths: Vec<String>,
+) -> Result<Vec<SkillSearchResult>, CommandError> {
+    let query_trimmed = query.trim();
+    if query_trimmed.is_empty() {
+        return Ok(vec![]);
+    }
+    let query_lower = query_trimmed.to_lowercase();
+
+    let home = std::env::var("HOME").map_err(|_| CommandError::ReadError {
+        message: "Could not determine HOME directory".to_string(),
+    })?;
+    let personal_dir = PathBuf::from(&home).join(".claude").join("skills");
+    let project_dirs: Vec<(String, PathBuf)> = project_paths
+        .iter()
+        .map(|p| (p.clone(), PathBuf::from(p).join(".claude").join("skills")))
+        .collect();
+
+    let all_skills = discover_skills(&personal_dir, &project_dirs);
+    let mut results: Vec<SkillSearchResult> = Vec::new();
+    let max_matches_per_skill: usize = 5;
+
+    for skill in all_skills {
+        let mut matches: Vec<SearchMatch> = Vec::new();
+        let mut score: u32 = 0;
+
+        // Search in name/slug
+        if skill.name.to_lowercase().contains(&query_lower)
+            || skill.slug.to_lowercase().contains(&query_lower)
+        {
+            score += 100;
+            matches.push(SearchMatch {
+                field: "name".to_string(),
+                file_path: None,
+                context: skill.name.clone(),
+                line: None,
+            });
+        }
+
+        // Search in description
+        if let Some(ref desc) = skill.description {
+            if desc.to_lowercase().contains(&query_lower) {
+                score += 50;
+                matches.push(SearchMatch {
+                    field: "description".to_string(),
+                    file_path: None,
+                    context: extract_snippet(desc, desc.to_lowercase().find(&query_lower).unwrap_or(0), 80),
+                    line: None,
+                });
+            }
+        }
+
+        // Search in bodyPreview
+        if let Some(ref body) = skill.body_preview {
+            if body.to_lowercase().contains(&query_lower) {
+                score += 30;
+                let pos = body.to_lowercase().find(&query_lower).unwrap_or(0);
+                matches.push(SearchMatch {
+                    field: "body".to_string(),
+                    file_path: Some("/SKILL.md".to_string()),
+                    context: extract_snippet(body, pos, 80),
+                    line: None,
+                });
+            }
+        }
+
+        // Search in skill files (filename + content)
+        let location_str = match skill.location {
+            SkillLocation::Personal => "personal",
+            SkillLocation::Project => "project",
+            SkillLocation::DesktopSkills => "desktop_skills",
+            SkillLocation::DesktopExamples => "desktop_examples",
+        };
+        if let Ok(skill_dir) = resolve_skill_path(
+            &skill.slug,
+            location_str,
+            skill.project_path.as_deref(),
+        ) {
+            if skill_dir.is_dir() {
+                let remaining = max_matches_per_skill.saturating_sub(matches.len());
+                let mut file_matches: Vec<SearchMatch> = Vec::new();
+                search_skill_files(&skill_dir, &skill_dir, &query_lower, &mut file_matches, remaining);
+
+                for m in &file_matches {
+                    match m.field.as_str() {
+                        "filename" => score += 20,
+                        "content" => score += 10,
+                        _ => {}
+                    }
+                }
+                matches.extend(file_matches);
+            }
+        }
+
+        if !matches.is_empty() {
+            matches.truncate(max_matches_per_skill);
+            results.push(SkillSearchResult {
+                skill,
+                matches,
+                score,
+            });
+        }
+    }
+
+    results.sort_by(|a, b| b.score.cmp(&a.score));
+    Ok(results)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1954,5 +2253,452 @@ mod tests {
             "content".to_string(),
         );
         assert!(result.is_err());
+    }
+
+    // ── is_binary_file tests ──
+
+    #[test]
+    fn test_is_binary_file_text() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("text.txt");
+        fs::write(&file, "Hello, world!\nLine two.").unwrap();
+        assert!(!is_binary_file(&file));
+    }
+
+    #[test]
+    fn test_is_binary_file_binary() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("binary.bin");
+        let mut data = vec![0x89, 0x50, 0x4E, 0x47]; // PNG header
+        data.push(0x00); // null byte
+        data.extend_from_slice(b"some data");
+        fs::write(&file, &data).unwrap();
+        assert!(is_binary_file(&file));
+    }
+
+    #[test]
+    fn test_is_binary_file_empty() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("empty.txt");
+        fs::write(&file, b"").unwrap();
+        assert!(!is_binary_file(&file));
+    }
+
+    #[test]
+    fn test_is_binary_file_nonexistent() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("nope.txt");
+        assert!(is_binary_file(&file));
+    }
+
+    // ── extract_snippet tests ──
+
+    #[test]
+    fn test_extract_snippet_short_line() {
+        let line = "short text";
+        let result = extract_snippet(line, 0, 80);
+        assert_eq!(result, "short text");
+    }
+
+    #[test]
+    fn test_extract_snippet_long_line_match_at_start() {
+        let line = &"a".repeat(200);
+        let result = extract_snippet(line, 0, 80);
+        assert_eq!(result.len(), 80 + 3); // 80 chars + "..."
+        assert!(result.ends_with("..."));
+        assert!(!result.starts_with("..."));
+    }
+
+    #[test]
+    fn test_extract_snippet_long_line_match_at_end() {
+        let line = &"a".repeat(200);
+        let result = extract_snippet(line, 195, 80);
+        assert!(result.starts_with("..."));
+        assert!(!result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_extract_snippet_long_line_match_in_middle() {
+        let line = &"a".repeat(200);
+        let result = extract_snippet(line, 100, 80);
+        assert!(result.starts_with("..."));
+        assert!(result.ends_with("..."));
+    }
+
+    // ── search_skill_files tests ──
+
+    #[test]
+    fn test_search_skill_files_finds_content_match() {
+        let dir = TempDir::new().unwrap();
+        let skill_dir = dir.path().join("test-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: test-skill\n---\n").unwrap();
+        fs::write(skill_dir.join("helpers.ts"), "export function doSomething() {\n  return 42;\n}\n").unwrap();
+
+        let mut matches = Vec::new();
+        search_skill_files(&skill_dir, &skill_dir, "dosomething", &mut matches, 10);
+
+        assert!(!matches.is_empty());
+        let content_match = matches.iter().find(|m| m.field == "content");
+        assert!(content_match.is_some(), "Should have a content match");
+        assert_eq!(content_match.unwrap().line, Some(1));
+    }
+
+    #[test]
+    fn test_search_skill_files_finds_filename_match() {
+        let dir = TempDir::new().unwrap();
+        let skill_dir = dir.path().join("test-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: test-skill\n---\n").unwrap();
+        fs::write(skill_dir.join("config.json"), "{}").unwrap();
+
+        let mut matches = Vec::new();
+        search_skill_files(&skill_dir, &skill_dir, "config", &mut matches, 10);
+
+        let filename_match = matches.iter().find(|m| m.field == "filename");
+        assert!(filename_match.is_some(), "Should have a filename match");
+        assert_eq!(filename_match.unwrap().context, "config.json");
+    }
+
+    #[test]
+    fn test_search_skill_files_skips_skill_md() {
+        let dir = TempDir::new().unwrap();
+        let skill_dir = dir.path().join("test-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: test-skill\n---\nspecial_marker_xyz").unwrap();
+
+        let mut matches = Vec::new();
+        search_skill_files(&skill_dir, &skill_dir, "special_marker_xyz", &mut matches, 10);
+
+        // SKILL.md is skipped — should find no matches
+        assert!(matches.is_empty(), "SKILL.md content should be skipped: {:?}", matches);
+    }
+
+    #[test]
+    fn test_search_skill_files_skips_hidden_files() {
+        let dir = TempDir::new().unwrap();
+        let skill_dir = dir.path().join("test-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: test-skill\n---\n").unwrap();
+        fs::write(skill_dir.join(".hidden"), "secret data").unwrap();
+
+        let mut matches = Vec::new();
+        search_skill_files(&skill_dir, &skill_dir, "secret", &mut matches, 10);
+
+        assert!(matches.is_empty(), "Hidden files should be skipped");
+    }
+
+    #[test]
+    fn test_search_skill_files_skips_binary() {
+        let dir = TempDir::new().unwrap();
+        let skill_dir = dir.path().join("test-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: test-skill\n---\n").unwrap();
+        let mut binary_data = b"findme here".to_vec();
+        binary_data.push(0x00);
+        fs::write(skill_dir.join("image.png"), &binary_data).unwrap();
+
+        let mut matches = Vec::new();
+        search_skill_files(&skill_dir, &skill_dir, "findme", &mut matches, 10);
+
+        assert!(matches.is_empty(), "Binary files should be skipped");
+    }
+
+    #[test]
+    fn test_search_skill_files_respects_max_matches() {
+        let dir = TempDir::new().unwrap();
+        let skill_dir = dir.path().join("test-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: test-skill\n---\n").unwrap();
+        // Write a file with many lines containing the search term
+        let content: String = (0..50).map(|i| format!("line {} has target\n", i)).collect();
+        fs::write(skill_dir.join("big.txt"), &content).unwrap();
+
+        let mut matches = Vec::new();
+        search_skill_files(&skill_dir, &skill_dir, "target", &mut matches, 3);
+
+        assert_eq!(matches.len(), 3, "Should respect max_matches limit");
+    }
+
+    #[test]
+    fn test_search_skill_files_recursive() {
+        let dir = TempDir::new().unwrap();
+        let skill_dir = dir.path().join("test-skill");
+        let nested = skill_dir.join("docs").join("api");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: test-skill\n---\n").unwrap();
+        fs::write(nested.join("endpoints.md"), "GET /users returns all users").unwrap();
+
+        let mut matches = Vec::new();
+        search_skill_files(&skill_dir, &skill_dir, "endpoints", &mut matches, 10);
+
+        let filename_match = matches.iter().find(|m| m.field == "filename");
+        assert!(filename_match.is_some(), "Should find nested filename");
+        assert!(filename_match.unwrap().file_path.as_ref().unwrap().contains("docs/api/endpoints.md"));
+    }
+
+    // ── skill_search command tests ──
+
+    #[test]
+    fn test_skill_search_empty_query() {
+        let result = skill_search("".to_string(), vec![]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_skill_search_whitespace_only_query() {
+        let result = skill_search("   ".to_string(), vec![]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_skill_search_finds_by_name() {
+        let dir = TempDir::new().unwrap();
+        let skills_dir = dir.path().join(".claude/skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        let skill_dir = skills_dir.join("code-review");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: code-review\ndescription: Review code changes\n---\nCheck for bugs.",
+        ).unwrap();
+
+        // Temporarily override HOME for this test
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", dir.path());
+
+        let result = skill_search("code-review".to_string(), vec![]);
+
+        std::env::set_var("HOME", &original_home);
+
+        let results = result.unwrap();
+        assert!(!results.is_empty(), "Should find skill by name");
+        assert_eq!(results[0].skill.slug, "code-review");
+        assert!(results[0].score >= 100, "Name match should score >= 100");
+        let has_name_match = results[0].matches.iter().any(|m| m.field == "name");
+        assert!(has_name_match, "Should have a name field match");
+    }
+
+    #[test]
+    fn test_skill_search_finds_by_description() {
+        let dir = TempDir::new().unwrap();
+        let skills_dir = dir.path().join(".claude/skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        let skill_dir = skills_dir.join("my-tool");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: my-tool\ndescription: Analyzes performance bottlenecks\n---\n",
+        ).unwrap();
+
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", dir.path());
+
+        let result = skill_search("bottleneck".to_string(), vec![]);
+
+        std::env::set_var("HOME", &original_home);
+
+        let results = result.unwrap();
+        assert!(!results.is_empty(), "Should find skill by description");
+        let has_desc_match = results[0].matches.iter().any(|m| m.field == "description");
+        assert!(has_desc_match, "Should have a description field match");
+    }
+
+    #[test]
+    fn test_skill_search_finds_by_file_content() {
+        let dir = TempDir::new().unwrap();
+        let skills_dir = dir.path().join(".claude/skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        let skill_dir = skills_dir.join("helper");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: helper\n---\n").unwrap();
+        fs::write(skill_dir.join("prompt.md"), "Use the fetchUsers function to get data").unwrap();
+
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", dir.path());
+
+        let result = skill_search("fetchUsers".to_string(), vec![]);
+
+        std::env::set_var("HOME", &original_home);
+
+        let results = result.unwrap();
+        assert!(!results.is_empty(), "Should find skill by file content");
+        let has_content_match = results[0].matches.iter().any(|m| m.field == "content");
+        assert!(has_content_match, "Should have a content field match");
+    }
+
+    #[test]
+    fn test_skill_search_no_match() {
+        let dir = TempDir::new().unwrap();
+        let skills_dir = dir.path().join(".claude/skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        let skill_dir = skills_dir.join("simple");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: simple\n---\nHello world").unwrap();
+
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", dir.path());
+
+        let result = skill_search("zzz_nonexistent_term_zzz".to_string(), vec![]);
+
+        std::env::set_var("HOME", &original_home);
+
+        let results = result.unwrap();
+        assert!(results.is_empty(), "Should return empty for non-matching query");
+    }
+
+    #[test]
+    fn test_skill_search_sorted_by_score() {
+        let dir = TempDir::new().unwrap();
+        let skills_dir = dir.path().join(".claude/skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        // Skill with name match (score 100)
+        let s1 = skills_dir.join("target-skill");
+        fs::create_dir_all(&s1).unwrap();
+        fs::write(s1.join("SKILL.md"), "---\nname: target-skill\n---\n").unwrap();
+
+        // Skill with only content match (score 10)
+        let s2 = skills_dir.join("other-skill");
+        fs::create_dir_all(&s2).unwrap();
+        fs::write(s2.join("SKILL.md"), "---\nname: other-skill\n---\n").unwrap();
+        fs::write(s2.join("notes.md"), "references target here").unwrap();
+
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", dir.path());
+
+        let result = skill_search("target".to_string(), vec![]);
+
+        std::env::set_var("HOME", &original_home);
+
+        let results = result.unwrap();
+        assert!(results.len() >= 2, "Should find both skills, got {}", results.len());
+        assert!(results[0].score >= results[1].score, "Results should be sorted by score desc");
+        assert_eq!(results[0].skill.slug, "target-skill", "Name match should rank first");
+    }
+
+    #[test]
+    fn test_skill_search_max_matches_per_skill() {
+        let dir = TempDir::new().unwrap();
+        let skills_dir = dir.path().join(".claude/skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        let skill_dir = skills_dir.join("big-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: big-skill\ndescription: has pattern too\n---\npattern in body",
+        ).unwrap();
+        // Many files with the pattern
+        for i in 0..20 {
+            fs::write(skill_dir.join(format!("file{}.txt", i)), "pattern is everywhere\n").unwrap();
+        }
+
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", dir.path());
+
+        let result = skill_search("pattern".to_string(), vec![]);
+
+        std::env::set_var("HOME", &original_home);
+
+        let results = result.unwrap();
+        assert!(!results.is_empty());
+        assert!(results[0].matches.len() <= 5, "Should cap at 5 matches per skill, got {}", results[0].matches.len());
+    }
+
+    #[test]
+    fn test_skill_search_case_insensitive() {
+        let dir = TempDir::new().unwrap();
+        let skills_dir = dir.path().join(".claude/skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        let skill_dir = skills_dir.join("my-api");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: My-API\ndescription: REST API helper\n---\n").unwrap();
+
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", dir.path());
+
+        let result = skill_search("my-api".to_string(), vec![]);
+
+        std::env::set_var("HOME", &original_home);
+
+        let results = result.unwrap();
+        assert!(!results.is_empty(), "Should match case-insensitively");
+    }
+
+    #[test]
+    fn test_skill_search_project_skills() {
+        let dir = TempDir::new().unwrap();
+        // Create a project skill
+        let project_dir = dir.path().join("myproject");
+        let skills_dir = project_dir.join(".claude/skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        let skill_dir = skills_dir.join("deploy");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "---\nname: deploy\ndescription: Deploy to production\n---\n").unwrap();
+
+        // Set HOME to a temp dir with no personal skills
+        let home_dir = dir.path().join("fakehome");
+        fs::create_dir_all(home_dir.join(".claude/skills")).unwrap();
+
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", &home_dir);
+
+        let result = skill_search(
+            "deploy".to_string(),
+            vec![project_dir.to_str().unwrap().to_string()],
+        );
+
+        std::env::set_var("HOME", &original_home);
+
+        let results = result.unwrap();
+        assert!(!results.is_empty(), "Should find project skills");
+        assert_eq!(results[0].skill.slug, "deploy");
+    }
+
+    // ── skill_list_directories tests ──
+
+    #[test]
+    fn test_skill_list_directories_includes_personal() {
+        let dir = TempDir::new().unwrap();
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", dir.path());
+
+        let result = skill_list_directories(vec![]);
+
+        std::env::set_var("HOME", &original_home);
+
+        let dirs = result.unwrap();
+        assert!(!dirs.is_empty(), "Should always return at least the personal dir");
+        assert_eq!(dirs[0].label, "Claude Code Skills");
+        assert!(dirs[0].path.contains(".claude/skills"));
+    }
+
+    #[test]
+    fn test_skill_list_directories_with_project() {
+        let dir = TempDir::new().unwrap();
+        let project_dir = dir.path().join("myproject");
+        let project_skills = project_dir.join(".claude/skills");
+        fs::create_dir_all(&project_skills).unwrap();
+
+        let original_home = std::env::var("HOME").unwrap();
+        std::env::set_var("HOME", dir.path());
+
+        let result = skill_list_directories(vec![project_dir.to_str().unwrap().to_string()]);
+
+        std::env::set_var("HOME", &original_home);
+
+        let dirs = result.unwrap();
+        let project_entry = dirs.iter().find(|d| d.label.contains("Project:"));
+        assert!(project_entry.is_some(), "Should include project directory");
+        assert!(project_entry.unwrap().exists, "Project skills dir should exist");
     }
 }

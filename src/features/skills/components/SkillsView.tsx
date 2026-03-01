@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { invokeCommand } from "@/lib/ipc";
@@ -7,8 +7,11 @@ import { useConfigStore } from "@/stores/useConfigStore";
 import { SkillCreateForm } from "./SkillCreateForm";
 import { SkillList } from "./SkillList";
 import { SkillFileEditor } from "./SkillFileEditor";
+import { Search, RefreshCw } from "lucide-react";
+import { SkillSearchDialog } from "./SearchResults";
 import type { SkillInfo, SkillLocation } from "@/types";
-import type { CopyDestination } from "./SkillRow";
+import { buildDestinations, encodeDestination, decodeDestination } from "./destinations";
+import type { CopyDestination } from "./destinations";
 
 // ── Export/Import dialog state ──
 interface ExportDialogState { open: boolean; skill: SkillInfo | null; destPath: string }
@@ -79,6 +82,39 @@ export function SkillsView() {
   const toggleProject = (pp: string) =>
     setProjectExpanded((prev) => ({ ...prev, [pp]: !(prev[pp] ?? true) }));
 
+  // ── Search dialog ──
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const handleSearchNavigate = useCallback(
+    (skill: SkillInfo) => {
+      selectSkill(skill);
+      const key = `${skill.location}:${skill.projectPath ?? ""}:${skill.slug}`;
+      setExpandedSkillKey(key);
+      loadSkillTree(skill.slug, skill.location, skill.projectPath);
+      // Expand the section that contains this skill
+      if (skill.location === "personal") setPersonalExpanded(true);
+      else if (skill.location === "desktop_skills") setDesktopSkillsExpanded(true);
+      else if (skill.location === "desktop_examples") setDesktopExamplesExpanded(true);
+      else if (skill.location === "project") {
+        setProjectsGroupExpanded(true);
+        if (skill.projectPath) setProjectExpanded((prev) => ({ ...prev, [skill.projectPath!]: true }));
+      }
+    },
+    [selectSkill, loadSkillTree],
+  );
+
+  // Cmd+K / Ctrl+K → open search dialog
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   // ── Activation toggle ──
   const handleToggleActive = async (skill: SkillInfo, active: boolean) => {
     try {
@@ -97,18 +133,10 @@ export function SkillsView() {
   };
 
   // ── Copy between locations ──
-  const availableDestinations = useMemo<CopyDestination[]>(() => {
-    const dests: CopyDestination[] = [
-      { label: "Claude Code Skills", location: "personal", projectPath: null },
-    ];
-    if (desktopSkillsCount > 0) {
-      dests.push({ label: "Claude Desktop Skills", location: "desktop_skills", projectPath: null });
-    }
-    for (const pp of projectPaths) {
-      dests.push({ label: `Project: ${pp}`, location: "project", projectPath: pp });
-    }
-    return dests;
-  }, [desktopSkillsCount, projectPaths]);
+  const availableDestinations = useMemo<CopyDestination[]>(
+    () => buildDestinations(skills, projectPaths),
+    [skills, projectPaths],
+  );
 
   const handleCopyTo = async (
     skill: SkillInfo,
@@ -227,7 +255,7 @@ export function SkillsView() {
       {/* Left panel — unified sidebar */}
       <Panel defaultSize="25%" minSize="15%" maxSize="40%">
         <div className="flex flex-col h-full overflow-hidden border-r border-zinc-800">
-          <SkillCreateForm projectPaths={projectPaths} hasDesktopSkills={desktopSkillsCount > 0} />
+          <SkillCreateForm availableDestinations={availableDestinations} />
 
           {/* Import button */}
           <div className="px-3 py-1.5 border-b border-zinc-800 shrink-0">
@@ -236,6 +264,28 @@ export function SkillsView() {
               className="w-full text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 rounded px-2 py-1 transition-colors text-left"
             >
               ↑ Import skill from package…
+            </button>
+          </div>
+
+          {/* Search trigger + Refresh */}
+          <div className="px-3 py-1.5 border-b border-zinc-800 shrink-0 flex gap-1.5">
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="flex-1 flex items-center gap-2 bg-zinc-800/50 border border-zinc-700 rounded px-2.5 py-1 text-xs text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
+            >
+              <Search size={13} />
+              <span className="flex-1 text-left">Search skills...</span>
+              <kbd className="hidden sm:inline text-[10px] bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-zinc-500">
+                ⌘K
+              </kbd>
+            </button>
+            <button
+              onClick={() => useSkillStore.getState().reloadSkills()}
+              className="flex items-center justify-center bg-zinc-800/50 border border-zinc-700 rounded px-1.5 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-colors"
+              title="Refresh skills"
+              aria-label="Refresh skills"
+            >
+              <RefreshCw size={13} />
             </button>
           </div>
 
@@ -476,13 +526,14 @@ export function SkillsView() {
                   className="w-full bg-zinc-800 border border-zinc-600 rounded px-3 py-1.5 text-sm text-zinc-100 outline-none mb-3"
                   value={`${importDialog.location}:${importDialog.projectPath ?? ""}`}
                   onChange={(e) => {
-                    const [loc, pp] = e.target.value.split(":");
-                    setImportDialog((d) => ({ ...d, location: loc, projectPath: pp || null }));
+                    const decoded = decodeDestination(e.target.value);
+                    setImportDialog((d) => ({ ...d, location: decoded.location, projectPath: decoded.projectPath }));
                   }}
                 >
-                  <option value="personal:">Personal</option>
-                  {projectPaths.map((pp) => (
-                    <option key={pp} value={`project:${pp}`}>{pp}</option>
+                  {availableDestinations.map((dest) => (
+                    <option key={encodeDestination(dest)} value={encodeDestination(dest)}>
+                      {dest.label}
+                    </option>
                   ))}
                 </select>
                 <div className="flex justify-end gap-2">
@@ -555,6 +606,13 @@ export function SkillsView() {
           </div>
         </div>
       )}
+      {/* Search command palette */}
+      <SkillSearchDialog
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onNavigate={handleSearchNavigate}
+        projectPaths={projectPaths}
+      />
     </PanelGroup>
   );
 }

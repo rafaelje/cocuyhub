@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 
+// jsdom doesn't implement ResizeObserver (needed by react-resizable-panels)
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
@@ -63,6 +71,12 @@ function defaultSkillState(overrides: Partial<ReturnType<typeof useSkillStore>> 
     openFile: vi.fn(),
     saveFile: vi.fn(),
     setFileContent: vi.fn(),
+    searchQuery: "",
+    searchResults: [],
+    isSearching: false,
+    searchError: null,
+    searchSkills: vi.fn(),
+    clearSearch: vi.fn(),
     ...overrides,
   } as unknown as ReturnType<typeof useSkillStore>;
 }
@@ -76,7 +90,7 @@ describe("SkillsView", () => {
 
   it("renders personal skills section header", () => {
     render(<SkillsView />);
-    expect(screen.getByText("Personal")).not.toBeNull();
+    expect(screen.getByText("Claude Code Skills")).not.toBeNull();
   });
 
   it("shows empty state when no skills (personal section expanded by default)", () => {
@@ -86,7 +100,7 @@ describe("SkillsView", () => {
 
   it("shows right panel empty state when no skill selected", () => {
     render(<SkillsView />);
-    expect(screen.getByText("Select a skill to browse its workspace files")).not.toBeNull();
+    expect(screen.getByText("Select a skill and file to start editing")).not.toBeNull();
   });
 
   it("shows loading skeleton when isLoading", () => {
@@ -109,6 +123,19 @@ describe("SkillsView", () => {
     } as unknown as ReturnType<typeof useConfigStore>);
     mockUseSkillStore.mockReturnValue(defaultSkillState());
     render(<SkillsView />);
-    expect(screen.getByText(/Project:.*my-project/)).not.toBeNull();
+    expect(screen.getByText("Projects")).not.toBeNull();
+    expect(screen.getByText("my-project")).not.toBeNull();
+  });
+
+  // ── Search trigger ──
+
+  it("renders search trigger button with shortcut hint", () => {
+    render(<SkillsView />);
+    expect(screen.getByText("Search skills...")).not.toBeNull();
+  });
+
+  it("search trigger button shows keyboard shortcut", () => {
+    render(<SkillsView />);
+    expect(screen.getByText("⌘K")).not.toBeNull();
   });
 });

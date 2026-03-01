@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { invokeCommand } from "@/lib/ipc";
-import type { SkillInfo, SkillTreeNode } from "@/types";
+import type { SkillInfo, SkillSearchResult, SkillTreeNode } from "@/types";
 
 interface SkillState {
   // List
@@ -21,6 +21,11 @@ interface SkillState {
   fileError: string | null;
   isFileDirty: boolean;
   isSavingFile: boolean;
+  // Search
+  searchQuery: string;
+  searchResults: SkillSearchResult[];
+  isSearching: boolean;
+  searchError: string | null;
 
   // Actions
   loadSkills: (projectPaths: string[]) => Promise<void>;
@@ -32,10 +37,14 @@ interface SkillState {
   openFile: (slug: string, location: string, projectPath: string | null, relPath: string) => Promise<void>;
   saveFile: (slug: string, location: string, projectPath: string | null, relPath: string, content: string) => Promise<void>;
   setFileContent: (content: string) => void;
+  searchSkills: (query: string, projectPaths: string[]) => Promise<void>;
+  clearSearch: () => void;
 }
 
 // Monotonically-increasing counter to detect stale openFile responses (M-2)
 let openFileSeq = 0;
+// Counter to detect stale search responses
+let searchSeq = 0;
 
 export const useSkillStore = create<SkillState>((set, get) => ({
   skills: [],
@@ -53,6 +62,10 @@ export const useSkillStore = create<SkillState>((set, get) => ({
   fileError: null,
   isFileDirty: false,
   isSavingFile: false,
+  searchQuery: "",
+  searchResults: [],
+  isSearching: false,
+  searchError: null,
 
   loadSkills: async (projectPaths: string[]) => {
     set({ isLoading: true, error: null, lastProjectPaths: projectPaths });
@@ -150,5 +163,25 @@ export const useSkillStore = create<SkillState>((set, get) => ({
   setFileContent: (content: string) => {
     const { savedContent } = get();
     set({ fileContent: content, isFileDirty: content !== savedContent });
+  },
+
+  searchSkills: async (query: string, projectPaths: string[]) => {
+    const seq = ++searchSeq;
+    set({ searchQuery: query, isSearching: true, searchError: null });
+    try {
+      const results = await invokeCommand<SkillSearchResult[]>("skill_search", { query, projectPaths });
+      // Discard stale responses — user may have typed more
+      if (seq !== searchSeq) return;
+      set({ searchResults: results, isSearching: false });
+    } catch (err) {
+      if (seq !== searchSeq) return;
+      const msg = (err as { message?: string })?.message ?? "Search failed";
+      set({ searchError: msg, isSearching: false });
+    }
+  },
+
+  clearSearch: () => {
+    ++searchSeq; // invalidate any in-flight search
+    set({ searchQuery: "", searchResults: [], isSearching: false, searchError: null });
   },
 }));
