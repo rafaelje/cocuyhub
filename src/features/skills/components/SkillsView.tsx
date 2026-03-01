@@ -512,7 +512,7 @@ export function SkillsView() {
               <>
                 <h2 className="text-sm font-semibold text-zinc-100 mb-1">Import Skill</h2>
                 <p className="text-xs text-zinc-400 mb-4">
-                  Select a <code>.zip</code> package exported from master-panel.
+                  Select a <code>.zip</code> package exported from CocuyHub.
                 </p>
                 <label className="block text-xs text-zinc-400 mb-1">Zip file path</label>
                 <input

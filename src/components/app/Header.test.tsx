@@ -60,16 +60,16 @@ describe("Header", () => {
     expect(screen.getByTestId("profile-switcher")).not.toBeNull();
   });
 
-  it("renders AI Panel title", () => {
+  it("renders CocuyHub title", () => {
     render(<Header />);
-    expect(screen.getByText("AI Panel")).not.toBeNull();
+    expect(screen.getByText("CocuyHub")).not.toBeNull();
   });
 
-  it("AI Panel name appears before ProfileSwitcher in DOM order", () => {
+  it("CocuyHub name appears before ProfileSwitcher in DOM order", () => {
     const { container } = render(<Header />);
     const header = container.querySelector("header")!;
     const children = Array.from(header.children);
-    const nameIdx = children.findIndex((el) => el.textContent?.includes("AI Panel"));
+    const nameIdx = children.findIndex((el) => el.textContent?.includes("CocuyHub"));
     const switcherIdx = children.findIndex(
       (el) => el.getAttribute("data-testid") === "profile-switcher"
     );

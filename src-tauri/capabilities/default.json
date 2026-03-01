@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "master-panel default capabilities",
+  "description": "CocuyHub default capabilities",
   "windows": ["main"],
   "permissions": [
     "core:default",

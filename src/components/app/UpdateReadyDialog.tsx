@@ -43,7 +43,7 @@ export function UpdateReadyDialog() {
         <DialogHeader>
           <DialogTitle>Update Ready</DialogTitle>
           <DialogDescription>
-            Update ready to install. master-panel will restart to apply the
+            Update ready to install. CocuyHub will restart to apply the
             update.
           </DialogDescription>
         </DialogHeader>

@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use tauri::Emitter;
 
 /// Returns the path to the app settings file:
-/// ~/Library/Application Support/master-panel/settings.json
+/// ~/Library/Application Support/CocuyHub/settings.json
 pub fn get_settings_file_path() -> Result<PathBuf, CommandError> {
     settings_file_path()
 }
@@ -20,7 +20,7 @@ fn settings_file_path() -> Result<PathBuf, CommandError> {
     Ok(PathBuf::from(home)
         .join("Library")
         .join("Application Support")
-        .join("master-panel")
+        .join("CocuyHub")
         .join("settings.json"))
 }
 
@@ -451,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_atomic_write_creates_file_with_correct_content() {
-        let dir = std::env::temp_dir().join("master_panel_test_write");
+        let dir = std::env::temp_dir().join("cocuyhub_test_write");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test_write_content.json");
         let content = r#"{"mcpServers":{}}"#;
@@ -476,7 +476,7 @@ mod tests {
 
     #[test]
     fn test_atomic_write_leaves_no_tmp_file_on_success() {
-        let dir = std::env::temp_dir().join("master_panel_test_cleanup");
+        let dir = std::env::temp_dir().join("cocuyhub_test_cleanup");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test_no_tmp.json");
         let tmp_path = PathBuf::from(format!("{}.tmp", path.to_string_lossy()));
@@ -490,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_atomic_write_does_not_modify_original_on_json_error() {
-        let dir = std::env::temp_dir().join("master_panel_test_original");
+        let dir = std::env::temp_dir().join("cocuyhub_test_original");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test_original_intact.json");
         let original = r#"{"mcpServers":{"original":{}}}"#;

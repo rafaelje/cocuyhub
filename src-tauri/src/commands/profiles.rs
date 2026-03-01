@@ -8,7 +8,7 @@ use tauri::Emitter;
 use uuid::Uuid;
 
 /// Returns the profiles.json path:
-/// ~/Library/Application Support/master-panel/profiles.json
+/// ~/Library/Application Support/CocuyHub/profiles.json
 fn profiles_file() -> Result<PathBuf, CommandError> {
     let home = std::env::var("HOME").map_err(|_| CommandError::WriteError {
         message: "Cannot determine HOME directory".to_string(),
@@ -16,7 +16,7 @@ fn profiles_file() -> Result<PathBuf, CommandError> {
     Ok(PathBuf::from(home)
         .join("Library")
         .join("Application Support")
-        .join("master-panel")
+        .join("CocuyHub")
         .join("profiles.json"))
 }
 
@@ -287,9 +287,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_profiles_file_path_contains_master_panel() {
+    fn test_profiles_file_path_contains_cocuyhub() {
         let path = profiles_file().unwrap();
-        assert!(path.to_string_lossy().contains("master-panel"));
+        assert!(path.to_string_lossy().contains("CocuyHub"));
         assert!(path.to_string_lossy().ends_with("profiles.json"));
     }
 

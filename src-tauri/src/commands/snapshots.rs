@@ -7,7 +7,7 @@ use tauri::Emitter;
 use uuid::Uuid;
 
 /// Returns the snapshots directory for the given tool:
-/// ~/Library/Application Support/master-panel/snapshots/{code|desktop}/
+/// ~/Library/Application Support/CocuyHub/snapshots/{code|desktop}/
 fn snapshots_dir(tool: &ToolTarget) -> Result<PathBuf, CommandError> {
     let home = std::env::var("HOME").map_err(|_| CommandError::SnapshotError {
         message: "Cannot determine HOME directory".to_string(),
@@ -19,7 +19,7 @@ fn snapshots_dir(tool: &ToolTarget) -> Result<PathBuf, CommandError> {
     Ok(PathBuf::from(home)
         .join("Library")
         .join("Application Support")
-        .join("master-panel")
+        .join("CocuyHub")
         .join("snapshots")
         .join(tool_str))
 }

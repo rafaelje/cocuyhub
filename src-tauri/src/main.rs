@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    master_panel_lib::run()
+    cocuyhub_lib::run()
 }

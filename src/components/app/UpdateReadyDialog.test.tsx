@@ -40,7 +40,7 @@ describe("UpdateReadyDialog", () => {
     useAppStore.setState({ updateReady: true });
     render(<UpdateReadyDialog />);
     expect(
-      screen.getByText(/master-panel will restart to apply the update/)
+      screen.getByText(/CocuyHub will restart to apply the update/)
     ).not.toBeNull();
   });
 

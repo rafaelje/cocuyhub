@@ -34,7 +34,7 @@ const CLAUDE_CONFIG_SCHEMA = {
           },
           _description: {
             type: "string",
-            description: "Optional human-readable description for this MCP server (master-panel metadata)",
+            description: "Optional human-readable description for this MCP server (CocuyHub metadata)",
           },
         },
       },
@@ -118,7 +118,7 @@ export function JsonEditorPane() {
       enableSchemaRequest: false,
       schemas: [
         {
-          uri: "https://master-panel/claude-config-schema.json",
+          uri: "https://cocuyhub/claude-config-schema.json",
           fileMatch: ["*"],
           schema: CLAUDE_CONFIG_SCHEMA,
         },
