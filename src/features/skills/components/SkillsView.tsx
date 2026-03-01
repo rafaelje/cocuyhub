@@ -1,13 +1,14 @@
 import { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { invokeCommand } from "@/lib/ipc";
 import { useSkillStore } from "@/stores/useSkillStore";
 import { useConfigStore } from "@/stores/useConfigStore";
 import { SkillCreateForm } from "./SkillCreateForm";
 import { SkillList } from "./SkillList";
-import { SkillWorkspaceTree } from "./SkillWorkspaceTree";
 import { SkillFileEditor } from "./SkillFileEditor";
-import type { SkillInfo } from "@/types";
+import type { SkillInfo, SkillLocation } from "@/types";
+import type { CopyDestination } from "./SkillRow";
 
 // ── Export/Import dialog state ──
 interface ExportDialogState { open: boolean; skill: SkillInfo | null; destPath: string }
@@ -16,7 +17,6 @@ interface ImportDialogState {
   zipPath: string;
   location: string;
   projectPath: string | null;
-  // conflict resolution step
   conflictSlug: string | null;
   conflictAction: "replace" | "rename" | null;
   renameSlug: string;
@@ -37,9 +37,27 @@ export function SkillsView() {
 
   useEffect(() => { loadSkills(projectPaths); }, [loadSkills, projectPaths]);
 
+  // ── Expanded skill (only one at a time) ──
+  const [expandedSkillKey, setExpandedSkillKey] = useState<string | null>(null);
+
+  const skillKey = (s: SkillInfo) =>
+    `${s.location}:${s.projectPath ?? ""}:${s.slug}`;
+
+  const handleToggleExpand = (skill: SkillInfo) => {
+    const key = skillKey(skill);
+    if (expandedSkillKey === key) {
+      // Collapse
+      setExpandedSkillKey(null);
+    } else {
+      // Expand new skill
+      setExpandedSkillKey(key);
+      selectSkill(skill);
+      loadSkillTree(skill.slug, skill.location, skill.projectPath);
+    }
+  };
+
   const handleSelectSkill = (skill: SkillInfo) => {
     selectSkill(skill);
-    loadSkillTree(skill.slug, skill.location, skill.projectPath);
   };
 
   const handleSelectFile = (relPath: string) => {
@@ -47,13 +65,17 @@ export function SkillsView() {
     openFile(selectedSkill.slug, selectedSkill.location, selectedSkill.projectPath, relPath);
   };
 
-  const selectedKey = selectedSkill
-    ? `${selectedSkill.location}:${selectedSkill.projectPath ?? ""}:${selectedSkill.slug}`
-    : null;
+  const selectedKey = selectedSkill ? skillKey(selectedSkill) : null;
 
   const [personalExpanded, setPersonalExpanded] = useState(true);
+  const [desktopSkillsExpanded, setDesktopSkillsExpanded] = useState(true);
+  const [desktopExamplesExpanded, setDesktopExamplesExpanded] = useState(false);
+  const [projectsGroupExpanded, setProjectsGroupExpanded] = useState(true);
   const [projectExpanded, setProjectExpanded] = useState<Record<string, boolean>>({});
   const personalCount = skills.filter((s) => s.location === "personal").length;
+  const desktopSkillsCount = skills.filter((s) => s.location === "desktop_skills").length;
+  const desktopExamplesCount = skills.filter((s) => s.location === "desktop_examples").length;
+  const totalProjectCount = skills.filter((s) => s.location === "project").length;
   const toggleProject = (pp: string) =>
     setProjectExpanded((prev) => ({ ...prev, [pp]: !(prev[pp] ?? true) }));
 
@@ -71,6 +93,45 @@ export function SkillsView() {
     } catch (err) {
       const msg = (err as { message?: string })?.message ?? "Toggle failed";
       toast.error(msg, { duration: Infinity });
+    }
+  };
+
+  // ── Copy between locations ──
+  const availableDestinations = useMemo<CopyDestination[]>(() => {
+    const dests: CopyDestination[] = [
+      { label: "Claude Code Skills", location: "personal", projectPath: null },
+    ];
+    if (desktopSkillsCount > 0) {
+      dests.push({ label: "Claude Desktop Skills", location: "desktop_skills", projectPath: null });
+    }
+    for (const pp of projectPaths) {
+      dests.push({ label: `Project: ${pp}`, location: "project", projectPath: pp });
+    }
+    return dests;
+  }, [desktopSkillsCount, projectPaths]);
+
+  const handleCopyTo = async (
+    skill: SkillInfo,
+    destLocation: SkillLocation,
+    destProjectPath: string | null,
+  ) => {
+    try {
+      await invokeCommand("skill_copy", {
+        slug: skill.slug,
+        srcLocation: skill.location,
+        srcProjectPath: skill.projectPath,
+        destLocation,
+        destProjectPath,
+      });
+      await useSkillStore.getState().reloadSkills();
+      toast.success(`Copied "${skill.slug}" to ${destLocation}`, { duration: 3000 });
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ?? "Copy failed";
+      if (msg.startsWith("CONFLICT:")) {
+        toast.error(`Skill "${skill.slug}" already exists in that location`, { duration: 5000 });
+      } else {
+        toast.error(msg, { duration: Infinity });
+      }
     }
   };
 
@@ -126,7 +187,6 @@ export function SkillsView() {
       setImportDialog(defaultImport());
     } catch (err) {
       const msg = (err as { message?: string })?.message ?? "Import failed";
-      // Check if it's a conflict error — backend sends "CONFLICT:<slug>"
       if (msg.startsWith("CONFLICT:")) {
         const slug = msg.slice("CONFLICT:".length) || "unknown";
         setImportDialog((d) => ({
@@ -149,145 +209,216 @@ export function SkillsView() {
     await handleImport(resolution);
   };
 
+  // Common props for SkillList instances
+  const listTreeProps = {
+    expandedSkillKey,
+    skillTree,
+    isTreeLoading,
+    treeError,
+    selectedFilePath,
+    onToggleExpand: handleToggleExpand,
+    onSelectFile: handleSelectFile,
+    onCopyTo: handleCopyTo,
+    availableDestinations,
+  };
+
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* Left panel — skill list */}
-      <div className="w-72 shrink-0 flex flex-col h-full overflow-hidden border-r border-zinc-800">
-        <SkillCreateForm projectPaths={projectPaths} />
+    <PanelGroup orientation="horizontal" className="h-full overflow-hidden">
+      {/* Left panel — unified sidebar */}
+      <Panel defaultSize="25%" minSize="15%" maxSize="40%">
+        <div className="flex flex-col h-full overflow-hidden border-r border-zinc-800">
+          <SkillCreateForm projectPaths={projectPaths} hasDesktopSkills={desktopSkillsCount > 0} />
 
-        {/* Import button */}
-        <div className="px-3 py-1.5 border-b border-zinc-800 shrink-0">
-          <button
-            onClick={() => setImportDialog((d) => ({ ...d, open: true }))}
-            className="w-full text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 rounded px-2 py-1 transition-colors text-left"
-          >
-            ↑ Import skill from package…
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {/* Personal section */}
-          <div className="shrink-0 px-4 py-2 border-b border-zinc-800 bg-zinc-950">
+          {/* Import button */}
+          <div className="px-3 py-1.5 border-b border-zinc-800 shrink-0">
             <button
-              onClick={() => setPersonalExpanded((prev) => !prev)}
-              className="flex items-center gap-2 w-full text-left"
-              aria-expanded={personalExpanded}
-              aria-label="Toggle Personal section"
+              onClick={() => setImportDialog((d) => ({ ...d, open: true }))}
+              className="w-full text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 rounded px-2 py-1 transition-colors text-left"
             >
-              <span className="text-zinc-400 text-xs">{personalExpanded ? "▼" : "▶"}</span>
-              <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex-1">Personal</span>
-              <span className="text-xs text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
-                {personalCount > 0 ? `${personalCount} Skill${personalCount !== 1 ? "s" : ""}` : "Empty"}
-              </span>
+              ↑ Import skill from package…
             </button>
           </div>
-          {personalExpanded && (
-            <SkillList
-              skills={skills}
-              location="personal"
-              isLoading={isLoading}
-              error={error}
-              selectedSkillKey={selectedKey}
-              onSelectSkill={handleSelectSkill}
-              onToggleActive={handleToggleActive}
-              onExport={openExportDialog}
-            />
-          )}
 
-          {/* Project sections */}
-          {projectPaths.map((pp) => {
-            const projectCount = skills.filter(
-              (s) => s.location === "project" && s.projectPath === pp
-            ).length;
-            const expanded = projectExpanded[pp] ?? true;
-            return (
-              <div key={pp}>
+          <div className="flex-1 overflow-y-auto">
+            {/* Personal section */}
+            <div className="shrink-0 px-4 py-2 border-b border-zinc-800 bg-zinc-950">
+              <button
+                onClick={() => setPersonalExpanded((prev) => !prev)}
+                className="flex items-center gap-2 w-full text-left"
+                aria-expanded={personalExpanded}
+                aria-label="Toggle Personal section"
+              >
+                <span className="text-zinc-400 text-xs">{personalExpanded ? "▼" : "▶"}</span>
+                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex-1">Claude Code Skills</span>
+                <span className="text-xs text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
+                  {personalCount > 0 ? `${personalCount} Skill${personalCount !== 1 ? "s" : ""}` : "Empty"}
+                </span>
+              </button>
+            </div>
+            {personalExpanded && (
+              <SkillList
+                skills={skills}
+                location="personal"
+                isLoading={isLoading}
+                error={error}
+                selectedSkillKey={selectedKey}
+                onSelectSkill={handleSelectSkill}
+                onToggleActive={handleToggleActive}
+                onExport={openExportDialog}
+                {...listTreeProps}
+              />
+            )}
+
+            {/* Claude Desktop Skills */}
+            {desktopSkillsCount > 0 && (
+              <>
                 <div className="shrink-0 px-4 py-2 border-b border-zinc-800 bg-zinc-950">
                   <button
-                    onClick={() => toggleProject(pp)}
+                    onClick={() => setDesktopSkillsExpanded((prev) => !prev)}
                     className="flex items-center gap-2 w-full text-left"
-                    aria-expanded={expanded}
-                    aria-label={`Toggle Project ${pp} section`}
+                    aria-expanded={desktopSkillsExpanded}
+                    aria-label="Toggle Claude Desktop Skills section"
                   >
-                    <span className="text-zinc-400 text-xs">{expanded ? "▼" : "▶"}</span>
-                    <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex-1 truncate">
-                      Project: {pp}
-                    </span>
+                    <span className="text-zinc-400 text-xs">{desktopSkillsExpanded ? "▼" : "▶"}</span>
+                    <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex-1">Claude Desktop Skills</span>
                     <span className="text-xs text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
-                      {projectCount > 0 ? `${projectCount} Skill${projectCount !== 1 ? "s" : ""}` : "Empty"}
+                      {desktopSkillsCount}
                     </span>
                   </button>
                 </div>
-                {expanded && (
+                {desktopSkillsExpanded && (
                   <SkillList
                     skills={skills}
-                    location="project"
-                    projectPath={pp}
+                    location="desktop_skills"
                     isLoading={isLoading}
                     error={error}
                     selectedSkillKey={selectedKey}
                     onSelectSkill={handleSelectSkill}
                     onToggleActive={handleToggleActive}
                     onExport={openExportDialog}
+                    {...listTreeProps}
                   />
                 )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+              </>
+            )}
 
-      {/* Right panel — workspace tree + file editor */}
-      <div className="flex-1 overflow-hidden flex">
-        {!selectedSkill ? (
-          <div className="flex items-center justify-center w-full h-full">
-            <p className="text-sm text-zinc-500 text-center px-8">
-              Select a skill to browse its workspace files
-            </p>
-          </div>
-        ) : isTreeLoading ? (
-          <div className="flex items-center justify-center w-full h-full">
-            <p className="text-sm text-zinc-500">Loading workspace…</p>
-          </div>
-        ) : treeError ? (
-          <div className="flex items-center justify-center w-full h-full">
-            <p className="text-sm text-red-400 text-center px-8">{treeError}</p>
-          </div>
-        ) : skillTree ? (
-          <>
-            {/* Tree panel */}
-            <div className="w-56 shrink-0 flex flex-col border-r border-zinc-800 overflow-hidden">
-              <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-950 shrink-0">
-                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider truncate block">
-                  {selectedSkill.name}
-                </span>
-              </div>
-              <SkillWorkspaceTree
-                tree={skillTree}
-                skill={selectedSkill}
-                selectedFilePath={selectedFilePath}
-                onSelectFile={handleSelectFile}
-              />
-            </div>
-
-            {/* File editor panel */}
-            <div className="flex-1 overflow-hidden">
-              {selectedFilePath ? (
-                <SkillFileEditor
-                  skill={selectedSkill}
-                  relPath={selectedFilePath}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-sm text-zinc-500 text-center px-8">
-                    Select a file to edit
-                  </p>
+            {/* Examples (Claude Desktop) */}
+            {desktopExamplesCount > 0 && (
+              <>
+                <div className="shrink-0 px-4 py-2 border-b border-zinc-800 bg-zinc-950">
+                  <button
+                    onClick={() => setDesktopExamplesExpanded((prev) => !prev)}
+                    className="flex items-center gap-2 w-full text-left"
+                    aria-expanded={desktopExamplesExpanded}
+                    aria-label="Toggle Examples section"
+                  >
+                    <span className="text-zinc-400 text-xs">{desktopExamplesExpanded ? "▼" : "▶"}</span>
+                    <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex-1">Examples</span>
+                    <span className="text-xs text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
+                      {desktopExamplesCount}
+                    </span>
+                  </button>
                 </div>
-              )}
+                {desktopExamplesExpanded && (
+                  <SkillList
+                    skills={skills}
+                    location="desktop_examples"
+                    isLoading={isLoading}
+                    error={error}
+                    selectedSkillKey={selectedKey}
+                    onSelectSkill={handleSelectSkill}
+                    onToggleActive={handleToggleActive}
+                    onExport={openExportDialog}
+                    {...listTreeProps}
+                  />
+                )}
+              </>
+            )}
+
+            {/* Projects — grouped at the end */}
+            {projectPaths.length > 0 && (
+              <>
+                <div className="shrink-0 px-4 py-2 border-b border-zinc-800 bg-zinc-950">
+                  <button
+                    onClick={() => setProjectsGroupExpanded((prev) => !prev)}
+                    className="flex items-center gap-2 w-full text-left"
+                    aria-expanded={projectsGroupExpanded}
+                    aria-label="Toggle Projects section"
+                  >
+                    <span className="text-zinc-400 text-xs">{projectsGroupExpanded ? "▼" : "▶"}</span>
+                    <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex-1">Projects</span>
+                    <span className="text-xs text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
+                      {totalProjectCount > 0 ? `${totalProjectCount} Skill${totalProjectCount !== 1 ? "s" : ""}` : "Empty"}
+                    </span>
+                  </button>
+                </div>
+                {projectsGroupExpanded && projectPaths.map((pp) => {
+                  const projectCount = skills.filter(
+                    (s) => s.location === "project" && s.projectPath === pp
+                  ).length;
+                  const expanded = projectExpanded[pp] ?? true;
+                  return (
+                    <div key={pp}>
+                      <div className="shrink-0 pl-8 pr-4 py-1.5 border-b border-zinc-800/50 bg-zinc-900/50">
+                        <button
+                          onClick={() => toggleProject(pp)}
+                          className="flex items-center gap-2 w-full text-left"
+                          aria-expanded={expanded}
+                          aria-label={`Toggle Project ${pp} section`}
+                        >
+                          <span className="text-zinc-500 text-xs">{expanded ? "▼" : "▶"}</span>
+                          <span className="text-xs font-medium text-zinc-400 flex-1 truncate">
+                            {pp.split("/").pop() || pp}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
+                            {projectCount}
+                          </span>
+                        </button>
+                      </div>
+                      {expanded && (
+                        <SkillList
+                          skills={skills}
+                          location="project"
+                          projectPath={pp}
+                          isLoading={isLoading}
+                          error={error}
+                          selectedSkillKey={selectedKey}
+                          onSelectSkill={handleSelectSkill}
+                          onToggleActive={handleToggleActive}
+                          onExport={openExportDialog}
+                          {...listTreeProps}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        </div>
+      </Panel>
+
+      <PanelResizeHandle className="w-1 bg-zinc-800 hover:bg-emerald-500 active:bg-emerald-400 transition-colors cursor-col-resize" />
+
+      {/* Right panel — editor only */}
+      <Panel defaultSize="75%" minSize="40%">
+        <div className="h-full overflow-hidden">
+          {selectedSkill && selectedFilePath ? (
+            <SkillFileEditor
+              skill={selectedSkill}
+              relPath={selectedFilePath}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-sm text-zinc-500 text-center px-8">
+                {selectedSkill
+                  ? "Select a file to edit"
+                  : "Select a skill and file to start editing"}
+              </p>
             </div>
-          </>
-        ) : null}
-      </div>
+          )}
+        </div>
+      </Panel>
 
       {/* Export dialog */}
       {exportDialog.open && (
@@ -424,6 +555,6 @@ export function SkillsView() {
           </div>
         </div>
       )}
-    </div>
+    </PanelGroup>
   );
 }

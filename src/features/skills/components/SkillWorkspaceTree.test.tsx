@@ -12,7 +12,7 @@ vi.mock("@/stores/useSkillStore", () => ({
   useSkillStore: vi.fn(() => ({ reloadTree: vi.fn() })),
 }));
 
-import { SkillWorkspaceTree } from "./SkillWorkspaceTree";
+import { InlineSkillTree } from "./SkillWorkspaceTree";
 import type { SkillTreeNode, SkillInfo } from "@/types";
 
 const mockSkill: SkillInfo = {
@@ -53,33 +53,33 @@ const defaultProps = {
   onSelectFile: vi.fn(),
 };
 
-describe("SkillWorkspaceTree", () => {
+describe("InlineSkillTree", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("renders the root node expanded by default", () => {
-    render(<SkillWorkspaceTree {...defaultProps} />);
-    expect(screen.getByLabelText("my-skill")).toBeTruthy();
+  it("renders root children directly (skips root node)", () => {
+    render(<InlineSkillTree {...defaultProps} />);
+    // Children of root should be visible
     expect(screen.getByLabelText("docs")).toBeTruthy();
     expect(screen.getByLabelText("SKILL.md")).toBeTruthy();
   });
 
   it("does not render nested children when parent dir is collapsed", () => {
-    render(<SkillWorkspaceTree {...defaultProps} />);
+    render(<InlineSkillTree {...defaultProps} />);
     // docs dir is visible but its child (guide.md) is collapsed initially
     expect(screen.queryByLabelText("guide.md")).toBeNull();
   });
 
   it("expands a collapsed dir on click", () => {
-    render(<SkillWorkspaceTree {...defaultProps} />);
+    render(<InlineSkillTree {...defaultProps} />);
     const docsBtn = screen.getByLabelText("docs");
     fireEvent.click(docsBtn);
     expect(screen.getByLabelText("guide.md")).toBeTruthy();
   });
 
   it("collapses an expanded dir on second click", () => {
-    render(<SkillWorkspaceTree {...defaultProps} />);
+    render(<InlineSkillTree {...defaultProps} />);
     const docsBtn = screen.getByLabelText("docs");
     fireEvent.click(docsBtn); // expand
     expect(screen.getByLabelText("guide.md")).toBeTruthy();
@@ -89,20 +89,14 @@ describe("SkillWorkspaceTree", () => {
 
   it("calls onSelectFile when a file is clicked", () => {
     const onSelectFile = vi.fn();
-    render(<SkillWorkspaceTree {...defaultProps} onSelectFile={onSelectFile} />);
+    render(<InlineSkillTree {...defaultProps} onSelectFile={onSelectFile} />);
     const skillMd = screen.getByLabelText("SKILL.md");
     fireEvent.click(skillMd);
     expect(onSelectFile).toHaveBeenCalledWith("/SKILL.md");
   });
 
-  it("renders file nodes without chevron", () => {
-    render(<SkillWorkspaceTree {...defaultProps} />);
-    const skillMd = screen.getByLabelText("SKILL.md");
-    expect(skillMd).toBeTruthy();
-  });
-
   it("highlights selected file with emerald color", () => {
-    render(<SkillWorkspaceTree {...defaultProps} selectedFilePath="/SKILL.md" />);
+    render(<InlineSkillTree {...defaultProps} selectedFilePath="/SKILL.md" />);
     const skillMd = screen.getByLabelText("SKILL.md");
     expect(skillMd.className).toContain("emerald");
   });

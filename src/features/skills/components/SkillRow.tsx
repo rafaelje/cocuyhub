@@ -1,7 +1,28 @@
 import { useState, useEffect, useRef } from "react";
-import { Download } from "lucide-react";
+import {
+  FileText,
+  ChevronRight,
+  ChevronDown,
+  MoreHorizontal,
+  Download,
+  Pencil,
+  AlignLeft,
+  Trash2,
+  Copy,
+} from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -12,12 +33,19 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { SkillInfo } from "@/types";
+import type { SkillInfo, SkillLocation } from "@/types";
 
 const SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+export interface CopyDestination {
+  label: string;
+  location: SkillLocation;
+  projectPath: string | null;
+}
+
 interface SkillRowProps {
   skill: SkillInfo;
+  isExpanded: boolean;
   onDelete: (slug: string) => Promise<void>;
   onRename: (oldSlug: string, newSlug: string) => Promise<void>;
   onToggleFrontmatter: (slug: string, key: string, value: string) => Promise<void>;
@@ -27,10 +55,14 @@ interface SkillRowProps {
   isSelected?: boolean;
   onToggleActive?: (skill: SkillInfo, active: boolean) => Promise<void>;
   onExport?: (skill: SkillInfo) => void;
+  onCopyTo?: (skill: SkillInfo, destLocation: SkillLocation, destProjectPath: string | null) => void;
+  availableDestinations?: CopyDestination[];
+  onToggleExpand: () => void;
 }
 
 export function SkillRow({
   skill,
+  isExpanded,
   onDelete,
   onRename,
   onToggleFrontmatter,
@@ -40,13 +72,15 @@ export function SkillRow({
   isSelected = false,
   onToggleActive,
   onExport,
+  onCopyTo,
+  availableDestinations,
+  onToggleExpand,
 }: SkillRowProps) {
-  // Model Invocation toggle: inverted logic — checked=enabled means disable-model-invocation is false
+  // Optimistic toggles
   const [optimisticModelInvocation, setOptimisticModelInvocation] = useState(!skill.disableModelInvocation);
-  // User Invocable toggle: direct logic
   const [optimisticUserInvocable, setOptimisticUserInvocable] = useState(skill.userInvocable);
-  // Active toggle: inverted of disabled
   const [optimisticActive, setOptimisticActive] = useState(!skill.disabled);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(skill.slug);
@@ -55,49 +89,22 @@ export function SkillRow({
   const cancelledRef = useRef(false);
   const descriptionCancelledRef = useRef(false);
 
-  useEffect(() => {
-    setOptimisticModelInvocation(!skill.disableModelInvocation);
-  }, [skill.disableModelInvocation]);
-
-  useEffect(() => {
-    setOptimisticUserInvocable(skill.userInvocable);
-  }, [skill.userInvocable]);
-
-  useEffect(() => {
-    setOptimisticActive(!skill.disabled);
-  }, [skill.disabled]);
-
-  useEffect(() => {
-    setDraftName(skill.slug);
-  }, [skill.slug]);
-
-  useEffect(() => {
-    setDraftDescription(skill.description ?? "");
-  }, [skill.description]);
+  useEffect(() => { setOptimisticModelInvocation(!skill.disableModelInvocation); }, [skill.disableModelInvocation]);
+  useEffect(() => { setOptimisticUserInvocable(skill.userInvocable); }, [skill.userInvocable]);
+  useEffect(() => { setOptimisticActive(!skill.disabled); }, [skill.disabled]);
+  useEffect(() => { setDraftName(skill.slug); }, [skill.slug]);
+  useEffect(() => { setDraftDescription(skill.description ?? ""); }, [skill.description]);
 
   const handleRenameCommit = async () => {
-    if (cancelledRef.current) {
-      cancelledRef.current = false;
-      return;
-    }
-    if (draftName === skill.slug) {
-      setEditing(false);
-      return;
-    }
-    if (!draftName || draftName.length > 64 || !SLUG_REGEX.test(draftName)) {
-      // Invalid — don't commit, keep editing
-      return;
-    }
+    if (cancelledRef.current) { cancelledRef.current = false; return; }
+    if (draftName === skill.slug) { setEditing(false); return; }
+    if (!draftName || draftName.length > 64 || !SLUG_REGEX.test(draftName)) return;
     const others = existingNames.filter((n) => n !== skill.slug);
-    if (others.includes(draftName)) {
-      return;
-    }
+    if (others.includes(draftName)) return;
     try {
       await onRename(skill.slug, draftName);
       setEditing(false);
-    } catch {
-      // keep editing open
-    }
+    } catch { /* keep editing */ }
   };
 
   const handleRenameCancel = () => {
@@ -107,20 +114,12 @@ export function SkillRow({
   };
 
   const handleDescriptionCommit = async () => {
-    if (descriptionCancelledRef.current) {
-      descriptionCancelledRef.current = false;
-      return;
-    }
-    if (draftDescription === (skill.description ?? "")) {
-      setDescriptionEditing(false);
-      return;
-    }
+    if (descriptionCancelledRef.current) { descriptionCancelledRef.current = false; return; }
+    if (draftDescription === (skill.description ?? "")) { setDescriptionEditing(false); return; }
     try {
       await onDescriptionChange(skill.slug, draftDescription.trim());
       setDescriptionEditing(false);
-    } catch {
-      // keep editing open
-    }
+    } catch { /* keep editing */ }
   };
 
   const handleDescriptionCancel = () => {
@@ -133,41 +132,23 @@ export function SkillRow({
     const prev = optimisticModelInvocation;
     setOptimisticModelInvocation(checked);
     try {
-      // Inverted: checked=true means disable-model-invocation should be false/removed
-      if (checked) {
-        await onToggleFrontmatter(skill.slug, "disable-model-invocation", "");
-      } else {
-        await onToggleFrontmatter(skill.slug, "disable-model-invocation", "true");
-      }
-    } catch {
-      setOptimisticModelInvocation(prev);
-    }
+      await onToggleFrontmatter(skill.slug, "disable-model-invocation", checked ? "" : "true");
+    } catch { setOptimisticModelInvocation(prev); }
   };
 
   const handleUserInvocableToggle = async (checked: boolean) => {
     const prev = optimisticUserInvocable;
     setOptimisticUserInvocable(checked);
     try {
-      if (checked) {
-        // true is default, remove the field
-        await onToggleFrontmatter(skill.slug, "user-invocable", "");
-      } else {
-        await onToggleFrontmatter(skill.slug, "user-invocable", "false");
-      }
-    } catch {
-      setOptimisticUserInvocable(prev);
-    }
+      await onToggleFrontmatter(skill.slug, "user-invocable", checked ? "" : "false");
+    } catch { setOptimisticUserInvocable(prev); }
   };
 
   const handleActiveToggle = async (checked: boolean) => {
     if (!onToggleActive) return;
     const prev = optimisticActive;
     setOptimisticActive(checked);
-    try {
-      await onToggleActive(skill, checked);
-    } catch {
-      setOptimisticActive(prev);
-    }
+    try { await onToggleActive(skill, checked); } catch { setOptimisticActive(prev); }
   };
 
   const handleConfirmDelete = async () => {
@@ -175,29 +156,37 @@ export function SkillRow({
     await onDelete(skill.slug);
   };
 
-  const locationLabel =
-    skill.location === "personal"
-      ? "Personal"
-      : skill.projectPath
-        ? skill.projectPath.split("/").slice(-2).join("/")
-        : "Project";
+  const handleRowClick = () => {
+    onSelect?.(skill);
+    onToggleExpand();
+  };
 
   return (
-    <div
-      role="article"
-      onClick={() => onSelect?.(skill)}
-      className={cn(
-        "flex flex-col px-4 py-3 border-b border-zinc-800 transition-colors",
-        isSelected
-          ? "bg-zinc-700 border-l-2 border-l-emerald-500"
-          : "bg-zinc-900 hover:bg-zinc-800 cursor-pointer"
-      )}
-    >
-      {/* Main row */}
-      <div className="flex items-center gap-3">
+    <>
+      <div
+        role="treeitem"
+        onClick={handleRowClick}
+        className={cn(
+          "group flex items-center gap-2 px-3 py-1.5 transition-colors cursor-pointer",
+          isSelected
+            ? "bg-zinc-800 text-zinc-100"
+            : "text-zinc-300 hover:bg-zinc-800/60"
+        )}
+      >
+        {/* Chevron */}
+        <span className="shrink-0 text-zinc-500 w-4 flex items-center justify-center">
+          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+
+        {/* Icon */}
+        <span className="shrink-0 text-zinc-500">
+          <FileText size={14} />
+        </span>
+
+        {/* Name (editable inline) */}
         {editing ? (
           <input
-            className="flex-1 font-mono text-sm text-zinc-100 bg-transparent border-b border-zinc-500 outline-none truncate"
+            className="flex-1 min-w-0 font-mono text-sm text-zinc-100 bg-transparent border-b border-zinc-500 outline-none truncate"
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
             onClick={(e) => e.stopPropagation()}
@@ -209,121 +198,136 @@ export function SkillRow({
             autoFocus
             aria-label={`Rename ${skill.slug}`}
           />
-        ) : (
-          <code
-            className="flex-1 font-mono text-sm text-zinc-100 truncate"
-            onDoubleClick={() => { setEditing(true); setDraftName(skill.slug); }}
-          >
-            {skill.name}
-          </code>
-        )}
-        <Badge variant="secondary" className="shrink-0">
-          {locationLabel}
-        </Badge>
-        {onToggleActive && (
-          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-            <span className="text-[10px] text-zinc-500">Active</span>
-            <Switch
-              size="sm"
-              checked={optimisticActive}
-              onCheckedChange={handleActiveToggle}
-              aria-label={`Active for ${skill.slug}`}
+        ) : descriptionEditing ? (
+          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+            <span className="font-mono text-sm truncate">{skill.name}</span>
+            <input
+              className="w-full text-[11px] text-zinc-300 bg-transparent border-b border-zinc-500 outline-none"
+              value={draftDescription}
+              onChange={(e) => setDraftDescription(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); handleDescriptionCommit(); }
+                if (e.key === "Escape") handleDescriptionCancel();
+              }}
+              onBlur={handleDescriptionCommit}
+              autoFocus
+              aria-label={`Description for ${skill.slug}`}
+              placeholder="Add description…"
             />
           </div>
-        )}
-        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          <span className="text-[10px] text-zinc-500">Model</span>
-          <Switch
-            size="sm"
-            checked={optimisticModelInvocation}
-            onCheckedChange={handleModelInvocationToggle}
-            aria-label={`Model Invocation for ${skill.slug}`}
-          />
-        </div>
-        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          <span className="text-[10px] text-zinc-500">User</span>
-          <Switch
-            size="sm"
-            checked={optimisticUserInvocable}
-            onCheckedChange={handleUserInvocableToggle}
-            aria-label={`User Invocable for ${skill.slug}`}
-          />
-        </div>
-        {onExport && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onExport(skill); }}
-            aria-label={`Export ${skill.slug}`}
-            className="p-1 text-zinc-500 hover:text-emerald-400 transition-colors rounded"
-            title="Export skill"
+        ) : (
+          <span
+            className="flex-1 min-w-0 font-mono text-sm truncate"
+            onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setDraftName(skill.slug); }}
           >
-            <Download size={13} />
-          </button>
+            {skill.name}
+          </span>
         )}
-        <button
-          onClick={(e) => { e.stopPropagation(); setDialogOpen(true); }}
-          aria-label={`Remove ${skill.slug}`}
-          className="ml-1 p-1 text-zinc-500 hover:text-red-400 transition-colors rounded"
-        >
-          ✕
-        </button>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent showCloseButton={false}>
-            <DialogHeader>
-              <DialogTitle>Remove skill?</DialogTitle>
-              <DialogDescription>
-                Remove <strong>{skill.slug}</strong>? This will delete the entire skill folder and cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <DialogClose asChild>
-                <button className="px-3 py-1.5 text-sm text-zinc-300 hover:text-zinc-100 transition-colors rounded border border-zinc-700 hover:border-zinc-500">
-                  Cancel
-                </button>
-              </DialogClose>
-              <button
-                onClick={handleConfirmDelete}
-                className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white transition-colors rounded"
-              >
-                Remove
-              </button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+
+        {/* Disabled badge */}
+        {skill.disabled && (
+          <span className="shrink-0 text-[10px] text-zinc-600 bg-zinc-800 rounded px-1">off</span>
+        )}
+
+        {/* Context menu trigger — visible on hover */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              onClick={(e) => e.stopPropagation()}
+              className="shrink-0 p-0.5 rounded text-zinc-600 opacity-0 group-hover:opacity-100 hover:text-zinc-300 hover:bg-zinc-700 transition-all"
+              aria-label={`Menu for ${skill.slug}`}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuLabel className="text-xs text-zinc-400">{skill.slug}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+
+            {/* Toggles */}
+            {onToggleActive && (
+              <div className="flex items-center justify-between px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                <span className="text-sm">Active</span>
+                <Switch size="sm" checked={optimisticActive} onCheckedChange={handleActiveToggle} />
+              </div>
+            )}
+            <div className="flex items-center justify-between px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+              <span className="text-sm">Model Invocation</span>
+              <Switch size="sm" checked={optimisticModelInvocation} onCheckedChange={handleModelInvocationToggle} />
+            </div>
+            <div className="flex items-center justify-between px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+              <span className="text-sm">User Invocable</span>
+              <Switch size="sm" checked={optimisticUserInvocable} onCheckedChange={handleUserInvocableToggle} />
+            </div>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem onSelect={() => { setEditing(true); setDraftName(skill.slug); }}>
+              <Pencil size={14} /> Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => { setDescriptionEditing(true); setDraftDescription(skill.description ?? ""); }}>
+              <AlignLeft size={14} /> Edit Description
+            </DropdownMenuItem>
+
+            {onExport && (
+              <DropdownMenuItem onSelect={() => onExport(skill)}>
+                <Download size={14} /> Export
+              </DropdownMenuItem>
+            )}
+
+            {onCopyTo && availableDestinations && availableDestinations.length > 0 && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Copy size={14} /> Copy to…
+                </DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent>
+                    {availableDestinations.map((dest) => (
+                      <DropdownMenuItem
+                        key={`${dest.location}:${dest.projectPath ?? ""}`}
+                        onSelect={() => onCopyTo(skill, dest.location, dest.projectPath)}
+                      >
+                        {dest.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
+            )}
+
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={() => setDialogOpen(true)}>
+              <Trash2 size={14} /> Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      {/* Description line */}
-      {descriptionEditing ? (
-        <input
-          className="mt-0.5 w-full text-xs text-zinc-300 bg-transparent border-b border-zinc-500 outline-none"
-          value={draftDescription}
-          onChange={(e) => setDraftDescription(e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); handleDescriptionCommit(); }
-            if (e.key === "Escape") handleDescriptionCancel();
-          }}
-          onBlur={handleDescriptionCommit}
-          autoFocus
-          aria-label={`Description for ${skill.slug}`}
-          placeholder="Add description…"
-        />
-      ) : (
-        <span
-          className={cn(
-            "mt-0.5 text-xs cursor-text",
-            skill.description ? "text-zinc-400" : "text-zinc-600"
-          )}
-          onClick={() => { setDescriptionEditing(true); setDraftDescription(skill.description ?? ""); }}
-          aria-label={skill.description ? `Description: ${skill.description}` : `Add description for ${skill.slug}`}
-        >
-          {skill.description || "Add description…"}
-        </span>
-      )}
-      {/* Body preview */}
-      {skill.bodyPreview && (
-        <span className="mt-1 text-xs text-zinc-600 line-clamp-2">
-          {skill.bodyPreview}
-        </span>
-      )}
-    </div>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Remove skill?</DialogTitle>
+            <DialogDescription>
+              Remove <strong>{skill.slug}</strong>? This will delete the entire skill folder and cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button className="px-3 py-1.5 text-sm text-zinc-300 hover:text-zinc-100 transition-colors rounded border border-zinc-700 hover:border-zinc-500">
+                Cancel
+              </button>
+            </DialogClose>
+            <button
+              onClick={handleConfirmDelete}
+              className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white transition-colors rounded"
+            >
+              Remove
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

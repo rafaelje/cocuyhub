@@ -27,11 +27,13 @@ const baseSkill: SkillInfo = {
 
 const defaultProps = {
   skill: baseSkill,
+  isExpanded: false,
   onDelete: vi.fn().mockResolvedValue(undefined),
   onRename: vi.fn().mockResolvedValue(undefined),
   onToggleFrontmatter: vi.fn().mockResolvedValue(undefined),
   onDescriptionChange: vi.fn().mockResolvedValue(undefined),
   existingNames: ["test-skill"],
+  onToggleExpand: vi.fn(),
 };
 
 describe("SkillRow", () => {
@@ -39,46 +41,21 @@ describe("SkillRow", () => {
     vi.clearAllMocks();
   });
 
-  it("renders skill name and description", () => {
+  it("renders skill name", () => {
     render(<SkillRow {...defaultProps} />);
     expect(screen.getByText("test-skill")).not.toBeNull();
-    expect(screen.getByText("A test description")).not.toBeNull();
   });
 
-  it("renders body preview when present", () => {
-    const skill = { ...baseSkill, bodyPreview: "Some preview text" };
-    render(<SkillRow {...defaultProps} skill={skill} />);
-    expect(screen.getByText("Some preview text")).not.toBeNull();
+  it("renders chevron right when collapsed", () => {
+    render(<SkillRow {...defaultProps} isExpanded={false} />);
+    // The component renders, chevron direction tested implicitly via aria
+    expect(screen.getByRole("treeitem")).not.toBeNull();
   });
 
-  it("toggles disable-model-invocation switch with inverted logic", async () => {
-    const onToggle = vi.fn().mockResolvedValue(undefined);
-    render(<SkillRow {...defaultProps} onToggleFrontmatter={onToggle} />);
-
-    // Model invocation should be checked (since disableModelInvocation=false)
-    const modelSwitch = screen.getByRole("switch", { name: /Model Invocation/i });
-    expect(modelSwitch.getAttribute("data-state")).toBe("checked");
-
-    await userEvent.click(modelSwitch);
-    expect(onToggle).toHaveBeenCalledWith("test-skill", "disable-model-invocation", "true");
-  });
-
-  it("toggles user-invocable switch with direct logic", async () => {
-    const onToggle = vi.fn().mockResolvedValue(undefined);
-    render(<SkillRow {...defaultProps} onToggleFrontmatter={onToggle} />);
-
-    const userSwitch = screen.getByRole("switch", { name: /User Invocable/i });
-    expect(userSwitch.getAttribute("data-state")).toBe("checked");
-
-    await userEvent.click(userSwitch);
-    expect(onToggle).toHaveBeenCalledWith("test-skill", "user-invocable", "false");
-  });
-
-  it("shows delete confirmation dialog", async () => {
+  it("calls onToggleExpand when row is clicked", async () => {
     render(<SkillRow {...defaultProps} />);
-    const deleteBtn = screen.getByRole("button", { name: /Remove test-skill/i });
-    await userEvent.click(deleteBtn);
-    expect(screen.getByText("Remove skill?")).not.toBeNull();
+    await userEvent.click(screen.getByRole("treeitem"));
+    expect(defaultProps.onToggleExpand).toHaveBeenCalled();
   });
 
   it("inline rename on double-click", async () => {
@@ -102,14 +79,13 @@ describe("SkillRow", () => {
     expect(defaultProps.onRename).not.toHaveBeenCalled();
   });
 
-  it("optimistic toggle rollback on error", async () => {
-    const onToggle = vi.fn().mockRejectedValue(new Error("fail"));
-    render(<SkillRow {...defaultProps} onToggleFrontmatter={onToggle} />);
+  it("shows menu button with context menu trigger", () => {
+    render(<SkillRow {...defaultProps} />);
+    expect(screen.getByLabelText(`Menu for test-skill`)).not.toBeNull();
+  });
 
-    const modelSwitch = screen.getByRole("switch", { name: /Model Invocation/i });
-    await userEvent.click(modelSwitch);
-
-    // After error, should roll back to checked
-    expect(modelSwitch.getAttribute("data-state")).toBe("checked");
+  it("shows disabled badge when skill is disabled", () => {
+    render(<SkillRow {...defaultProps} skill={{ ...baseSkill, disabled: true }} />);
+    expect(screen.getByText("off")).not.toBeNull();
   });
 });

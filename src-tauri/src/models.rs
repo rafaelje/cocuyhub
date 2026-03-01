@@ -132,10 +132,15 @@ pub struct SessionBlock {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "lowercase")]
 pub enum SkillLocation {
+    #[serde(rename = "personal")]
     Personal,
+    #[serde(rename = "project")]
     Project,
+    #[serde(rename = "desktop_skills")]
+    DesktopSkills,
+    #[serde(rename = "desktop_examples")]
+    DesktopExamples,
 }
 
 #[derive(Debug, Clone, Serialize)]

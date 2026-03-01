@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
+import { useConfigStore } from "@/stores/useConfigStore";
 import { invokeCommand } from "@/lib/ipc";
 import type { AppSettings } from "@/types";
 
@@ -71,12 +72,18 @@ function PathField({
 export function SettingsView() {
   const { codePath, desktopPath, isDetecting, detectPaths, setCodePath, setDesktopPath } =
     useSettingsStore();
+  const { loadConfigs, setupFileWatcher } = useConfigStore();
 
   const [customCodePath, setCustomCodePath] = useState("");
   const [customDesktopPath, setCustomDesktopPath] = useState("");
   const [isSavingCode, setIsSavingCode] = useState(false);
   const [isSavingDesktop, setIsSavingDesktop] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const reloadAfterPathChange = async () => {
+    await loadConfigs();
+    await setupFileWatcher();
+  };
 
   const handleSaveCodePath = async () => {
     if (!customCodePath.trim()) return;
@@ -90,6 +97,7 @@ export function SettingsView() {
       await invokeCommand("config_save_settings", { settings: newSettings });
       setCodePath(customCodePath.trim());
       setCustomCodePath("");
+      await reloadAfterPathChange();
     } catch (err) {
       setSaveError("Failed to save code path");
       console.error(err);
@@ -110,6 +118,7 @@ export function SettingsView() {
       await invokeCommand("config_save_settings", { settings: newSettings });
       setDesktopPath(customDesktopPath.trim());
       setCustomDesktopPath("");
+      await reloadAfterPathChange();
     } catch (err) {
       setSaveError("Failed to save desktop path");
       console.error(err);
@@ -121,6 +130,7 @@ export function SettingsView() {
   const handleDetectPaths = async () => {
     setSaveError(null);
     await detectPaths();
+    await reloadAfterPathChange();
   };
 
   return (

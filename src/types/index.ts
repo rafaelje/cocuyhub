@@ -88,7 +88,7 @@ export interface SessionBlock {
   limitReached: boolean;
 }
 
-export type SkillLocation = "personal" | "project";
+export type SkillLocation = "personal" | "project" | "desktop_skills" | "desktop_examples";
 
 export interface SkillTreeNode {
   name: string;

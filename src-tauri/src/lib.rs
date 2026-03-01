@@ -115,6 +115,8 @@ pub fn run() {
             // Skills export/import (Epics 4 + 5)
             commands::skills::skill_export,
             commands::skills::skill_import,
+            // Skills copy between locations
+            commands::skills::skill_copy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

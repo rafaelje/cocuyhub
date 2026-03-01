@@ -261,43 +261,117 @@ pub(crate) fn skill_info_from_path(
     })
 }
 
-/// Discover skills from personal and project directories.
+/// Collect skills from a flat directory (each subdirectory with SKILL.md is a skill).
+fn collect_skills_from_dir(
+    dir: &Path,
+    location: SkillLocation,
+    project_path: Option<String>,
+    skills: &mut Vec<SkillInfo>,
+) {
+    if !dir.is_dir() {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join("SKILL.md").exists() {
+                if let Ok(info) = skill_info_from_path(&path, location.clone(), project_path.clone()) {
+                    skills.push(info);
+                }
+            }
+        }
+    }
+}
+
+/// Discover the Claude Desktop "My Skills" directory.
+/// Path pattern: ~/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/<uuid>/<uuid>/skills/
+fn find_desktop_skills_dir(home: &str) -> Option<PathBuf> {
+    let base = PathBuf::from(home)
+        .join("Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin");
+    if !base.is_dir() {
+        return None;
+    }
+    // Traverse two levels of UUID directories to find the skills/ folder
+    for e1 in std::fs::read_dir(&base).ok()?.flatten() {
+        if !e1.path().is_dir() { continue; }
+        for e2 in std::fs::read_dir(e1.path()).ok().into_iter().flatten().flatten() {
+            let skills_dir = e2.path().join("skills");
+            if skills_dir.is_dir() {
+                return Some(skills_dir);
+            }
+        }
+    }
+    None
+}
+
+/// Discover the Claude Desktop "Examples" base directory.
+/// Path pattern: ~/Library/Application Support/Claude/local-agent-mode-sessions/<uuid>/<uuid>/cowork_plugins/marketplaces/knowledge-work-plugins/
+fn find_desktop_examples_base(home: &str) -> Option<PathBuf> {
+    let base = PathBuf::from(home)
+        .join("Library/Application Support/Claude/local-agent-mode-sessions");
+    if !base.is_dir() {
+        return None;
+    }
+    for e1 in std::fs::read_dir(&base).ok()?.flatten() {
+        let p1 = e1.path();
+        // Skip the skills-plugin directory
+        if !p1.is_dir() || p1.file_name().map_or(false, |n| n == "skills-plugin") {
+            continue;
+        }
+        for e2 in std::fs::read_dir(&p1).ok().into_iter().flatten().flatten() {
+            let kwp = e2.path()
+                .join("cowork_plugins/marketplaces/knowledge-work-plugins");
+            if kwp.is_dir() {
+                return Some(kwp);
+            }
+        }
+    }
+    None
+}
+
+/// Discover skills from personal, project, and Claude Desktop directories.
 pub(crate) fn discover_skills(
     personal_dir: &Path,
     project_dirs: &[(String, PathBuf)],
 ) -> Vec<SkillInfo> {
     let mut skills = Vec::new();
 
-    // Personal skills
-    if personal_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(personal_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() && path.join("SKILL.md").exists() {
-                    if let Ok(info) =
-                        skill_info_from_path(&path, SkillLocation::Personal, None)
-                    {
-                        skills.push(info);
-                    }
-                }
-            }
-        }
+    // Personal skills (~/.claude/skills/)
+    collect_skills_from_dir(personal_dir, SkillLocation::Personal, None, &mut skills);
+
+    // Project skills (<project>/.claude/skills/)
+    for (project_path, skills_dir) in project_dirs {
+        collect_skills_from_dir(
+            skills_dir,
+            SkillLocation::Project,
+            Some(project_path.clone()),
+            &mut skills,
+        );
     }
 
-    // Project skills
-    for (project_path, skills_dir) in project_dirs {
-        if skills_dir.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(skills_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() && path.join("SKILL.md").exists() {
-                        if let Ok(info) = skill_info_from_path(
-                            &path,
-                            SkillLocation::Project,
-                            Some(project_path.clone()),
-                        ) {
-                            skills.push(info);
-                        }
+    // Claude Desktop "My Skills"
+    if let Ok(home) = std::env::var("HOME") {
+        if let Some(desktop_skills_dir) = find_desktop_skills_dir(&home) {
+            collect_skills_from_dir(
+                &desktop_skills_dir,
+                SkillLocation::DesktopSkills,
+                Some(desktop_skills_dir.to_string_lossy().into_owned()),
+                &mut skills,
+            );
+        }
+
+        // Claude Desktop "Examples" — each category subfolder has a skills/ dir
+        if let Some(examples_base) = find_desktop_examples_base(&home) {
+            if let Ok(categories) = std::fs::read_dir(&examples_base) {
+                for cat_entry in categories.flatten() {
+                    let cat_skills_dir = cat_entry.path().join("skills");
+                    if cat_skills_dir.is_dir() {
+                        collect_skills_from_dir(
+                            &cat_skills_dir,
+                            SkillLocation::DesktopExamples,
+                            Some(cat_skills_dir.to_string_lossy().into_owned()),
+                            &mut skills,
+                        );
                     }
                 }
             }
@@ -346,6 +420,27 @@ fn resolve_skill_path(
             validate_project_path(pp)?;
             Ok(PathBuf::from(pp).join(".claude").join("skills").join(slug))
         }
+        "desktop_skills" => {
+            // project_path carries the parent skills directory; auto-discover if absent
+            let parent = match project_path {
+                Some(pp) => PathBuf::from(pp),
+                None => {
+                    let home = std::env::var("HOME").map_err(|_| CommandError::ReadError {
+                        message: "Could not determine HOME directory".to_string(),
+                    })?;
+                    find_desktop_skills_dir(&home).ok_or_else(|| CommandError::ReadError {
+                        message: "Claude Desktop My Skills directory not found".to_string(),
+                    })?
+                }
+            };
+            Ok(parent.join(slug))
+        }
+        "desktop_examples" => {
+            let pp = project_path.ok_or_else(|| CommandError::ReadError {
+                message: "Parent path required for desktop example skills".to_string(),
+            })?;
+            Ok(PathBuf::from(pp).join(slug))
+        }
         _ => Err(CommandError::WriteError {
             message: format!("Invalid location: '{}'", location),
         }),
@@ -384,6 +479,7 @@ pub fn skill_create(
     description: String,
     location: String,
     project_path: Option<String>,
+    instructions: Option<String>,
 ) -> Result<SkillInfo, CommandError> {
     validate_slug(&name)?;
 
@@ -401,20 +497,31 @@ pub fn skill_create(
 
     let safe_name = sanitize_frontmatter_value(&name);
     let safe_desc = sanitize_frontmatter_value(&description);
-    let mut frontmatter = format!("---\nname: {}\n", safe_name);
+    let mut content = format!("---\nname: {}\n", safe_name);
     if !safe_desc.is_empty() {
-        frontmatter.push_str(&format!("description: {}\n", safe_desc));
+        content.push_str(&format!("description: {}\n", safe_desc));
     }
-    frontmatter.push_str("---\n");
+    content.push_str("---\n");
+
+    // Append instructions body if provided
+    if let Some(ref body) = instructions {
+        let trimmed = body.trim();
+        if !trimmed.is_empty() {
+            content.push('\n');
+            content.push_str(trimmed);
+            content.push('\n');
+        }
+    }
 
     let skill_md_path = skill_dir.join("SKILL.md");
-    std::fs::write(&skill_md_path, &frontmatter).map_err(|e| CommandError::WriteError {
+    std::fs::write(&skill_md_path, &content).map_err(|e| CommandError::WriteError {
         message: format!("Failed to write SKILL.md: {}", e),
     })?;
 
     let loc = match location.as_str() {
         "personal" => SkillLocation::Personal,
         "project" => SkillLocation::Project,
+        "desktop_skills" => SkillLocation::DesktopSkills,
         _ => {
             return Err(CommandError::WriteError {
                 message: format!("Invalid location: '{}'", location),
@@ -1138,6 +1245,8 @@ pub fn skill_import(
                 // Return info for new slug
                 let loc = match location.as_str() {
                     "personal" => SkillLocation::Personal,
+                    "desktop_skills" => SkillLocation::DesktopSkills,
+                    "desktop_examples" => SkillLocation::DesktopExamples,
                     _ => SkillLocation::Project,
                 };
                 return skill_info_from_path(&new_dest, loc, project_path);
@@ -1159,9 +1268,71 @@ pub fn skill_import(
 
     let loc = match location.as_str() {
         "personal" => SkillLocation::Personal,
+        "desktop_skills" => SkillLocation::DesktopSkills,
+        "desktop_examples" => SkillLocation::DesktopExamples,
         _ => SkillLocation::Project,
     };
     skill_info_from_path(&dest_dir, loc, project_path)
+}
+
+/// Recursively copy a directory and all its contents.
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), CommandError> {
+    std::fs::create_dir_all(dest).map_err(|e| CommandError::WriteError {
+        message: format!("Failed to create directory: {}", e),
+    })?;
+    for entry in std::fs::read_dir(src)
+        .map_err(|e| CommandError::ReadError {
+            message: format!("Failed to read directory: {}", e),
+        })?
+        .flatten()
+    {
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dest_path)?;
+        } else {
+            std::fs::copy(&src_path, &dest_path).map_err(|e| CommandError::WriteError {
+                message: format!("Failed to copy file: {}", e),
+            })?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn skill_copy(
+    slug: String,
+    src_location: String,
+    src_project_path: Option<String>,
+    dest_location: String,
+    dest_project_path: Option<String>,
+) -> Result<SkillInfo, CommandError> {
+    validate_slug(&slug)?;
+
+    let src_dir = resolve_skill_path(&slug, &src_location, src_project_path.as_deref())?;
+    let dest_dir = resolve_skill_path(&slug, &dest_location, dest_project_path.as_deref())?;
+
+    if !src_dir.is_dir() {
+        return Err(CommandError::ReadError {
+            message: format!("Source skill '{}' not found", slug),
+        });
+    }
+
+    if dest_dir.exists() {
+        return Err(CommandError::WriteError {
+            message: format!("{}{}",  CONFLICT_PREFIX, slug),
+        });
+    }
+
+    copy_dir_recursive(&src_dir, &dest_dir)?;
+
+    let loc = match dest_location.as_str() {
+        "personal" => SkillLocation::Personal,
+        "desktop_skills" => SkillLocation::DesktopSkills,
+        "desktop_examples" => SkillLocation::DesktopExamples,
+        _ => SkillLocation::Project,
+    };
+    skill_info_from_path(&dest_dir, loc, dest_project_path)
 }
 
 /// Recursively build a SkillTreeNode tree from a directory.

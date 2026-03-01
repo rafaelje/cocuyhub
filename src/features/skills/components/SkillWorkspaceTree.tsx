@@ -24,14 +24,9 @@ import {
 } from "@/components/ui/dialog";
 import type { SkillTreeNode, SkillInfo } from "@/types";
 
-interface SkillWorkspaceTreeProps {
-  tree: SkillTreeNode;
-  skill: SkillInfo;
-  selectedFilePath: string | null;
-  onSelectFile: (path: string) => void;
-}
+// ── TreeNode (exported for reuse in InlineSkillTree) ──
 
-interface TreeNodeProps {
+export interface TreeNodeProps {
   node: SkillTreeNode;
   skill: SkillInfo;
   expanded: Set<string>;
@@ -46,7 +41,7 @@ interface TreeNodeProps {
   depth: number;
 }
 
-function TreeNode({
+export function TreeNode({
   node,
   skill,
   expanded,
@@ -81,11 +76,11 @@ function TreeNode({
   const handleRenameCommit = async () => {
     if (cancelledRef.current) {
       cancelledRef.current = false;
-      onRenameStart(null); // exit rename mode on cancel
+      onRenameStart(null);
       return;
     }
     if (draftName === node.name || !draftName.trim()) {
-      onRenameStart(null); // exit rename mode with no change
+      onRenameStart(null);
       return;
     }
     try {
@@ -96,20 +91,19 @@ function TreeNode({
         relPath: node.path,
         newName: draftName.trim(),
       });
-      onRenameStart(null); // exit rename mode on success (tree reload replaces node)
+      onRenameStart(null);
       await reloadTree();
     } catch (err) {
       const msg = (err as { message?: string })?.message ?? "Rename failed";
       toast.error(msg, { duration: Infinity });
       setDraftName(node.name);
-      onRenameStart(null); // exit rename mode on error too
+      onRenameStart(null);
     }
   };
 
   const handleRenameCancel = () => {
     cancelledRef.current = true;
     setDraftName(node.name);
-    // onRenameStart(null) will be called by handleRenameCommit when onBlur fires
   };
 
   const canDelete = node.path !== "/" && node.path !== "/SKILL.md";
@@ -200,7 +194,16 @@ function TreeNode({
   );
 }
 
-export function SkillWorkspaceTree({ tree, skill, selectedFilePath, onSelectFile }: SkillWorkspaceTreeProps) {
+// ── InlineSkillTree (no header, renders root children directly) ──
+
+interface InlineSkillTreeProps {
+  tree: SkillTreeNode;
+  skill: SkillInfo;
+  selectedFilePath: string | null;
+  onSelectFile: (path: string) => void;
+}
+
+export function InlineSkillTree({ tree, skill, selectedFilePath, onSelectFile }: InlineSkillTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["/"]))
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
@@ -217,10 +220,8 @@ export function SkillWorkspaceTree({ tree, skill, selectedFilePath, onSelectFile
       return next
     })
 
-  // Determine the parent dir for creation (selected dir, or root if file selected)
   const creationParent = (() => {
     if (!selectedPath || selectedPath === "/") return "/"
-    // Find the node for selectedPath
     function findNode(node: SkillTreeNode, path: string): SkillTreeNode | null {
       if (node.path === path) return node
       for (const c of node.children) {
@@ -231,7 +232,6 @@ export function SkillWorkspaceTree({ tree, skill, selectedFilePath, onSelectFile
     }
     const node = findNode(tree, selectedPath)
     if (node && node.nodeType === "dir") return selectedPath
-    // It's a file — use its parent
     return selectedPath.substring(0, selectedPath.lastIndexOf("/")) || "/"
   })()
 
@@ -277,41 +277,38 @@ export function SkillWorkspaceTree({ tree, skill, selectedFilePath, onSelectFile
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Toolbar */}
-      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-zinc-800 shrink-0">
+    <div className="flex flex-col overflow-hidden border-b border-zinc-800/50">
+      {/* Compact toolbar */}
+      <div className="flex items-center gap-0.5 px-3 py-1 shrink-0">
+        <span className="flex-1" />
         <button
-          onClick={() => { setIsCreating("dir"); setNewName(""); }}
-          className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 rounded transition-colors"
+          onClick={(e) => { e.stopPropagation(); setIsCreating("dir"); setNewName(""); }}
+          className="p-0.5 text-zinc-600 hover:text-zinc-300 transition-colors rounded"
           title={`New Folder in ${creationParent}`}
           aria-label="New Folder"
         >
           <FolderPlus size={13} />
-          <span>Folder</span>
         </button>
         <button
-          onClick={() => { setIsCreating("file"); setNewName(""); }}
-          className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 rounded transition-colors"
+          onClick={(e) => { e.stopPropagation(); setIsCreating("file"); setNewName(""); }}
+          className="p-0.5 text-zinc-600 hover:text-zinc-300 transition-colors rounded"
           title={`New File in ${creationParent}`}
           aria-label="New File"
         >
           <FilePlus size={13} />
-          <span>File</span>
         </button>
-        <span className="ml-auto text-[10px] text-zinc-600 truncate max-w-[90px]" title={`in ${creationParent}`}>
-          in {creationParent}
-        </span>
       </div>
 
       {/* New item input */}
       {isCreating && (
-        <div className="px-2 py-1.5 border-b border-zinc-800 shrink-0 flex items-center gap-2">
-          <span className="text-xs text-zinc-500">{isCreating === "dir" ? "Folder:" : "File:"}</span>
+        <div className="px-3 py-1 shrink-0 flex items-center gap-2">
+          <span className="text-[10px] text-zinc-500">{isCreating === "dir" ? "Folder:" : "File:"}</span>
           <input
             className="flex-1 text-xs font-mono text-zinc-100 bg-zinc-800 border border-zinc-600 rounded px-1.5 py-0.5 outline-none focus:border-emerald-500"
             placeholder={isCreating === "dir" ? "folder-name" : "file.md"}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleCreate()
               if (e.key === "Escape") { setIsCreating(null); setNewName(""); }
@@ -320,36 +317,39 @@ export function SkillWorkspaceTree({ tree, skill, selectedFilePath, onSelectFile
             aria-label={`New ${isCreating} name`}
           />
           <button
-            onClick={handleCreate}
-            className="text-xs px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
+            onClick={(e) => { e.stopPropagation(); handleCreate(); }}
+            className="text-[10px] px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
           >
-            Create
+            OK
           </button>
           <button
-            onClick={() => { setIsCreating(null); setNewName(""); }}
-            className="text-xs px-2 py-0.5 text-zinc-400 hover:text-zinc-100 rounded transition-colors"
+            onClick={(e) => { e.stopPropagation(); setIsCreating(null); setNewName(""); }}
+            className="text-[10px] px-1.5 py-0.5 text-zinc-400 hover:text-zinc-100 rounded transition-colors"
           >
-            Cancel
+            ✕
           </button>
         </div>
       )}
 
-      {/* Tree */}
-      <div className="flex-1 overflow-y-auto py-1" role="tree" aria-label="Skill workspace tree">
-        <TreeNode
-          node={tree}
-          skill={skill}
-          expanded={expanded}
-          selectedPath={selectedPath}
-          selectedFilePath={selectedFilePath}
-          renamingPath={renamingPath}
-          onToggle={toggle}
-          onSelect={setSelectedPath}
-          onRenameStart={setRenamingPath}
-          onDelete={(path, isDir) => setDeleteTarget({ path, isDir })}
-          onSelectFile={onSelectFile}
-          depth={0}
-        />
+      {/* Tree — render children of root directly (skip the "/" node) */}
+      <div className="overflow-y-auto py-0.5 pl-4" role="tree" aria-label={`${skill.name} files`}>
+        {tree.children.map((child) => (
+          <TreeNode
+            key={child.path}
+            node={child}
+            skill={skill}
+            expanded={expanded}
+            selectedPath={selectedPath}
+            selectedFilePath={selectedFilePath}
+            renamingPath={renamingPath}
+            onToggle={toggle}
+            onSelect={setSelectedPath}
+            onRenameStart={setRenamingPath}
+            onDelete={(path, isDir) => setDeleteTarget({ path, isDir })}
+            onSelectFile={onSelectFile}
+            depth={0}
+          />
+        ))}
       </div>
 
       {/* Delete confirmation dialog */}
