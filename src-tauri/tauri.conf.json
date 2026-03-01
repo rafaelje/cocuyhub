@@ -26,9 +26,9 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "TODO: https://github.com/YOUR_ORG/cocuyhub/releases/latest/download/latest.json"
+        "https://github.com/rafaelje/cocuyhub/releases/latest/download/latest.json"
       ],
-      "pubkey": "TODO: generated via tauri signer generate"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3Q0UxQzIzMDVCMTc4RTYKUldUbWVMRUZJeHpPbDZ0VlJFK3o1cmJvRzlYb2E3dG5ZMm5xamJZVURjdzlPWjQwTk1pTlBhQWkK"
     }
   },
   "bundle": {
