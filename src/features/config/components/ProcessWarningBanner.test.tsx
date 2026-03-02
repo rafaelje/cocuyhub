@@ -26,7 +26,7 @@ function mockProcessStatus(code: boolean, desktop: boolean) {
         setProcessStatus: vi.fn(),
         setEditorDirty: vi.fn(),
         setExternalChangeWarning: vi.fn(),
-      } as ReturnType<typeof useAppStore>);
+      } as unknown as Parameters<typeof selector>[0]);
     }
     return undefined;
   });

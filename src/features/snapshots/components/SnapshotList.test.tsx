@@ -3,12 +3,12 @@ import { render, screen, within } from "@testing-library/react";
 import { SnapshotList } from "./SnapshotList";
 import type { Snapshot } from "@/types";
 
-const mockGetDateGroup = vi.fn(() => "Today" as const);
+const mockGetDateGroup = vi.fn((_ts: string): "Today" | "Yesterday" | "This week" | "Older" => "Today");
 
 vi.mock("@/lib/format-date", () => ({
   formatRelativeTime: vi.fn(() => "2 hours ago"),
   formatAbsoluteTime: vi.fn(() => "2026-02-26T14:00:00.000Z"),
-  getDateGroup: (...args: unknown[]) => mockGetDateGroup(...args),
+  getDateGroup: (ts: string) => mockGetDateGroup(ts),
 }));
 
 class ResizeObserverMock {
@@ -53,7 +53,7 @@ describe("SnapshotList", () => {
   });
 
   it("renders Older section for old snapshot", () => {
-    mockGetDateGroup.mockReturnValue("Older");
+    mockGetDateGroup.mockReturnValue("Older" as const);
     render(<SnapshotList snapshots={[makeSnapshot("1", "old snap")]} />);
     const section = screen.getByRole("region", { name: "Older" });
     expect(section).not.toBeNull();
@@ -62,8 +62,8 @@ describe("SnapshotList", () => {
 
   it("each section has correct aria-label", () => {
     mockGetDateGroup
-      .mockReturnValueOnce("Today")
-      .mockReturnValueOnce("Older");
+      .mockReturnValueOnce("Today" as const)
+      .mockReturnValueOnce("Older" as const);
     const snapshots = [
       makeSnapshot("1", "snap today"),
       makeSnapshot("2", "snap older"),

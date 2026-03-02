@@ -36,12 +36,12 @@ function setupMocks() {
     codeError: null,
     desktopError: null,
   };
-  mockConfigStore.mockImplementation((selector?: (s: unknown) => unknown) =>
-    selector ? selector(configState) : configState
+  mockConfigStore.mockImplementation((selector?: unknown) =>
+    typeof selector === "function" ? (selector as (s: typeof configState) => unknown)(configState) : configState
   );
   const settingsState = { codePath: null, desktopPath: null };
-  mockSettingsStore.mockImplementation((selector?: (s: unknown) => unknown) =>
-    selector ? selector(settingsState) : settingsState
+  mockSettingsStore.mockImplementation((selector?: unknown) =>
+    typeof selector === "function" ? (selector as (s: typeof settingsState) => unknown)(settingsState) : settingsState
   );
 }
 

@@ -113,7 +113,7 @@ export function JsonEditorPane() {
     monaco: typeof Monaco
   ) {
     editorRef.current = editor;
-    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+    (monaco.languages.json as unknown as { jsonDefaults: { setDiagnosticsOptions: (opts: unknown) => void } }).jsonDefaults.setDiagnosticsOptions({
       validate: true,
       enableSchemaRequest: false,
       schemas: [

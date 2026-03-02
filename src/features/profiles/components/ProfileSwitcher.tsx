@@ -23,8 +23,7 @@ export const ProfileSwitcher = forwardRef<ProfileSwitcherHandle>(
     const profiles = useProfileStore((state) => state.profiles);
     const activeProfileId = useProfileStore((state) => state.activeProfileId);
     const computeMixedState = useProfileStore((state) => state.computeMixedState);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const _codeConfig = useConfigStore((state) => state.codeConfig);
+    useConfigStore((state) => state.codeConfig);
     const activeProfile = profiles.find((p) => p.id === activeProfileId) ?? null;
     const isMixed = !!activeProfile && computeMixedState("code");
 

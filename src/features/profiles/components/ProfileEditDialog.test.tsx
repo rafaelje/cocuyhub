@@ -31,9 +31,10 @@ const makeProfile = (id: string, name: string): Profile => ({
   createdAt: "2026-01-01T00:00:00Z",
 });
 
-const makeConfig = (mcps: string[]): ClaudeConfig => ({
-  mcpServers: Object.fromEntries(mcps.map((n) => [n, { command: "node", args: [] }])),
-});
+// makeConfig helper available for future tests
+// const makeConfig = (mcps: string[]): ClaudeConfig => ({
+//   mcpServers: Object.fromEntries(mcps.map((n) => [n, { command: "node", args: [] }])),
+// });
 
 function setupStores(
   profiles: Profile[] = [],

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Settings2, Code2, User, History, SlidersHorizontal, BarChart2, Wand2, type LucideIcon } from "lucide-react";
+import { Settings2, Code2, History, SlidersHorizontal, BarChart2, Wand2, type LucideIcon } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
