@@ -131,6 +131,25 @@ yarn tauri build
 
 The macOS `.app` bundle and `.dmg` installer will be generated in `src-tauri/target/release/bundle/`.
 
+## Releases
+
+CocuyHub uses a tag-based release pipeline powered by GitHub Actions. When a version tag is pushed, the CI automatically builds the macOS `.dmg` installer and publishes a GitHub Release with all artifacts.
+
+### Creating a Release
+
+```bash
+git tag v0.2.0
+git push origin main --tags
+```
+
+The workflow will:
+1. Build the frontend and Rust backend
+2. Bundle the macOS `.app` and `.dmg`
+3. Sign the update artifacts for the auto-updater
+4. Publish the GitHub Release with the `.dmg`, `.app.tar.gz`, and `latest.json`
+
+Releases are available on the [Releases](https://github.com/rafaelje/cocuyhub/releases) page.
+
 ## Development
 
 ```bash
